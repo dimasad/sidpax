@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sidpax"
+version = "0.1.dev0"
+authors = [
+  { name="Dimas Abreu Archanjo Dutra", email="dimas.dutra@mail.wvu.edu" },
+]
+description = "System Identification Programs in JAX."
+readme = "README.md"
+license = {file = "LICENSE"}
+dependencies = [
+  "jax",
+  "jax_dataclasses",
+  "numpy",
+  "scipy",
+]
+
+[project.optional-dependencies]
+devextra = [
+  "ipython",
+  "ipdb",
+  "matplotlib",
+  "optax",
+]
+
+[project.urls]
+Repository = "https://github.com/dimasad/sidpax"
