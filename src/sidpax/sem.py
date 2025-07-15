@@ -32,7 +32,7 @@ class Estimator:
         mu: jax.Array
         Sigma_cond: stats.PositiveDefiniteMatrix
         S_cross: jax.Array
-    
+
     def param(self, data, rng=None):
         N = len(data)
         p = self.model.param(data, rng)
@@ -51,7 +51,7 @@ class Estimator:
         mu = param.mu
         Sigma_cond = param.Sigma_cond
         S_cross = param.S_cross
-        return self.outres(y,u,mu,p,Sigma_cond, S_cross)
+        return self.outres(y, u, mu, p, Sigma_cond, S_cross)
 
     def jacval(self, data, param):
         y = data.y
@@ -60,9 +60,9 @@ class Estimator:
         mu = param.mu
         Sigma_cond = param.Sigma_cond
         S_cross = param.S_cross
-        return self.outres.jacval(y,u,mu,p,Sigma_cond, S_cross)
+        return self.outres.jacval(y, u, mu, p, Sigma_cond, S_cross)
 
-    @stats.sparse_residual(s='(y),(u),(x)->(S,y)', e=(3,4,5), n=(2,3,4,5))
+    @stats.sparse_residual(i=(0, 0, 0, None, None, None), n=(2, 3, 4, 5))
     def outres(self, y, u, mu, p, Sigma_cond, S_cross):
         # Get the Cholesky factor of the marginal state covariance
         S_cond = Sigma_cond.chol

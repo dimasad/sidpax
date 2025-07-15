@@ -41,10 +41,6 @@ class LogDiagMatrix(PositiveDefiniteMatrix):
     log_d: jax.Array
     """Logarithm of the diagonal elements."""
 
-    def __post_init__(self):
-        """Check that the dimensions are compatible."""
-        assert self.log_d.ndim == 1, "Broadcasting not supported yet."
-
     @property
     def logdet(self):
         """Logarithm of the matrix determinant."""
@@ -102,12 +98,6 @@ class LDLTMatrix(PositiveDefiniteMatrix):
     log_d: jax.Array
     """Logarithm of the diagonal elements."""
 
-    def __post_init__(self):
-        """Check that the dimensions of L and D are compatible."""
-        n_d = self.log_d.shape[-1]
-        n_L = common.matl_size(self.vech_L.shape[-1]) + 1
-        assert n_d == n_L, "Incompatible dimensions for L and D."
-
     @classmethod
     def I(cls, n: int):
         """Make identity matrix."""
@@ -163,51 +153,27 @@ def sigmapts(dim: int):
 
 
 class SparseResidualFunction:
-    def __init__(self, f, signature, excluded=(), argnums=0):
+    def __init__(self, f, in_axes=0, out_axes=0, argnums=0):
         self.f = f
         """The underlying residual method."""
 
-        self.signature = signature
-        """Generalized universal function signature for vectorization."""
+        self.in_axes = in_axes
+        """Specification of which input array axes to vmap over."""
 
-        self.excluded = excluded
-        """"Set of integers representing positional arguments not vectorized."""
+        self.out_axes = out_axes
+        """"Where the vmap-ed axes should appear in the output."""
 
         self.argnums = argnums
         """"Argument numbers wrt which the Jacobian is computed."""
 
-    @property
-    def signature_list(self):
-        # Remove whitespace for safety
-        sig = self.signature.replace(' ', '')
-
-        # Split inputs/outputs
-        input_str, output_str = sig.split('->')
-
-        # Find the core dimension names for each argument
-        dim_pattern = re.compile(r'\(([a-zA-Z0-9_,]*)\)')
-        inputs = [dims.split(',') if dims else []
-                for dims in dim_pattern.findall(input_str)]
-        outputs = [dims.split(',') if dims else []
-                for dims in dim_pattern.findall(output_str)]
-        
-        # Add None to elements that are excluded
-        for i in self.excluded:
-            inputs.insert(i, None)
-        return inputs, outputs
-
     def vfun(self, obj):
         method = self.f.__get__(obj)
-        return jnp.vectorize(
-            method, excluded=self.excluded, signature=self.signature
-        )
+        return jax.vmap(method, self.in_axes, self.out_axes)
 
     def jacval(self, obj):
         method = self.f.__get__(obj)
         jac = jax.jacobian(method, argnums=self.argnums)
-        return jnp.vectorize(
-            jac, excluded=self.excluded, signature=self.signature
-        )
+        return jax.vmap(jac, self.in_axes, self.out_axes)
     
     def res_shape(self, jacval, *args):
         """Get shape of residuals from Jacobian values."""
@@ -237,11 +203,11 @@ class SparseResidualMethod:
         self.obj = obj
         """The object the method is bound to."""
 
-    def __call__(self, *args, **kwargs):
-        return self.fun.vfun(self.obj)(*args, **kwargs)
+    def __call__(self, *args):
+        return self.fun.vfun(self.obj)(*args)
     
-    def jacval(self, *args, **kwargs):
-        return self.fun.jacval(self.obj)(*args, **kwargs)
+    def jacval(self, *args):
+        return self.fun.jacval(self.obj)(*args)
 
 
 def sparse_residual(f=None, **kwargs):
@@ -249,12 +215,12 @@ def sparse_residual(f=None, **kwargs):
         return functools.partial(sparse_residual, **kwargs) 
 
      # Replace aliases
-    if 's' in kwargs:
-        kwargs['signature'] = kwargs['s']
-        del kwargs['s']
-    if 'e' in kwargs:
-        kwargs['excluded'] = kwargs['e']
-        del kwargs['e']
+    if 'i' in kwargs:
+        kwargs['in_axes'] = kwargs['i']
+        del kwargs['i']
+    if 'o' in kwargs:
+        kwargs['out_axes'] = kwargs['o']
+        del kwargs['o']
     if 'n' in kwargs:
         kwargs['argnums'] = kwargs['n']
         del kwargs['n']
