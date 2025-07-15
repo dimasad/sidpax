@@ -1,8 +1,9 @@
 """Statistical helper functions."""
 
-
 import abc
+import functools
 import math
+import re
 import typing
 
 import jax
@@ -22,7 +23,7 @@ class PositiveDefiniteMatrix(abc.ABC):
     @abc.abstractmethod
     def logdet(self):
         """Logarithm of the matrix determinant."""
-        
+
     @property
     @abc.abstractmethod
     def chol(self):
@@ -36,7 +37,7 @@ class PositiveDefiniteMatrix(abc.ABC):
 @jdc.pytree_dataclass
 class LogDiagMatrix(PositiveDefiniteMatrix):
     """Diagonal PD matrix represented by its log-diagonal."""
-    
+
     log_d: jax.Array
     """Logarithm of the diagonal elements."""
 
@@ -54,7 +55,7 @@ class LogDiagMatrix(PositiveDefiniteMatrix):
         """Lower triangular Cholesky factor `S` of the matrix `P = S @ S.T`."""
         sqrt_d = jnp.exp(0.5 * self.log_d)
         return jnp.diag(sqrt_d)
-    
+
     def __call__(self):
         """The underlying positive-definite matrix."""
         return jnp.diag(jnp.exp(self.log_d))
@@ -63,7 +64,7 @@ class LogDiagMatrix(PositiveDefiniteMatrix):
 @jdc.pytree_dataclass
 class LogCholMatrix(PositiveDefiniteMatrix):
     """PD matrix represented by the matrix logarithm of its Cholesky factor."""
-    
+
     vech_log_chol: jax.Array
     """Elements at and below the main diagonal (using function vech) of the
     matrix logarithm of the Cholesky factor of a positive definite matrix."""
@@ -79,7 +80,7 @@ class LogCholMatrix(PositiveDefiniteMatrix):
         log_chol = common.matl(self.vech_log_chol)
         chol = jsp.linalg.expm(log_chol)
         return chol
-    
+
     def __call__(self):
         """The underlying positive-definite matrix."""
         chol_T = self.chol.swapaxes(-1, -2)
@@ -89,12 +90,12 @@ class LogCholMatrix(PositiveDefiniteMatrix):
 @jdc.pytree_dataclass
 class LDLTMatrix(PositiveDefiniteMatrix):
     """PD matrix represented by its LDL^T decomposition.
-    
+
     The matrix L is unitriangular, and D is diagonal with strictly positive
     entries. Only the elements below the unit diagonal of L are stored. The
     logarithm of the diagonal elements of D are stored.
     """
-    
+
     vech_L: jax.Array
     """Elements strictly below the main diagonal (using function vech) of L."""
 
@@ -105,12 +106,12 @@ class LDLTMatrix(PositiveDefiniteMatrix):
         """Check that the dimensions of L and D are compatible."""
         n_d = self.log_d.shape[-1]
         n_L = common.matl_size(self.vech_L.shape[-1]) + 1
-        assert n_d == n_L, 'Incompatible dimensions for L and D.'
+        assert n_d == n_L, "Incompatible dimensions for L and D."
 
     @classmethod
     def I(cls, n: int):
         """Make identity matrix."""
-        vech_L = common.vech(jnp.zeros((n-1,n-1)))
+        vech_L = common.vech(jnp.zeros((n - 1, n - 1)))
         log_d = jnp.zeros(n)
         return cls(vech_L=vech_L, log_d=log_d)
 
@@ -124,8 +125,7 @@ class LDLTMatrix(PositiveDefiniteMatrix):
         """The underlying unitriangular matrix `L`."""
         n = self.log_d.shape[-1]
         base_shape = jnp.broadcast_shapes(
-            self.log_d.shape[:-1], self.vech_L.shape[:-1]
-        )
+            self.log_d.shape[:-1], self.vech_L.shape[:-1])
         L = jnp.zeros(base_shape + (n, n)).at[...].set(jnp.identity(n))
         return L.at[..., 1:, :-1].add(common.matl(self.vech_L))
 
@@ -134,7 +134,7 @@ class LDLTMatrix(PositiveDefiniteMatrix):
         """Lower triangular Cholesky factor `S` of the matrix `P = S @ S.T`."""
         sqrt_d = jnp.exp(0.5 * self.log_d)
         return self._L * sqrt_d[..., None, :]
-    
+
     def __call__(self):
         """The underlying positive-definite matrix."""
         D = jnp.exp(self.log_d[..., None, :])
@@ -150,7 +150,7 @@ def ghcub(order, dim):
     wrep = [w] * dim
     xmesh = np.meshgrid(*xrep)
     wmesh = np.meshgrid(*wrep)
-    X = np.hstack(tuple(xi.reshape(-1,1) for xi in xmesh))
+    X = np.hstack(tuple(xi.reshape(-1, 1) for xi in xmesh))
     W = math.prod(wmesh).flatten()
     return X, W
 
@@ -160,3 +160,103 @@ def sigmapts(dim: int):
     X = np.r_[np.eye(dim), -np.eye(dim)] * np.sqrt(dim)
     W = 0.5 / dim
     return X, W
+
+
+class SparseResidualFunction:
+    def __init__(self, f, signature, excluded=(), argnums=0):
+        self.f = f
+        """The underlying residual method."""
+
+        self.signature = signature
+        """Generalized universal function signature for vectorization."""
+
+        self.excluded = excluded
+        """"Set of integers representing positional arguments not vectorized."""
+
+        self.argnums = argnums
+        """"Argument numbers wrt which the Jacobian is computed."""
+
+    @property
+    def signature_list(self):
+        # Remove whitespace for safety
+        sig = self.signature.replace(' ', '')
+
+        # Split inputs/outputs
+        input_str, output_str = sig.split('->')
+
+        # Find the core dimension names for each argument
+        dim_pattern = re.compile(r'\(([a-zA-Z0-9_,]*)\)')
+        inputs = [dims.split(',') if dims else []
+                for dims in dim_pattern.findall(input_str)]
+        outputs = [dims.split(',') if dims else []
+                for dims in dim_pattern.findall(output_str)]
+        
+        # Add None to elements that are excluded
+        for i in self.excluded:
+            inputs.insert(i, None)
+        return inputs, outputs
+
+    def vfun(self, obj):
+        method = self.f.__get__(obj)
+        return jnp.vectorize(
+            method, excluded=self.excluded, signature=self.signature
+        )
+
+    def jacval(self, obj):
+        method = self.f.__get__(obj)
+        jac = jax.jacobian(method, argnums=self.argnums)
+        return jnp.vectorize(
+            jac, excluded=self.excluded, signature=self.signature
+        )
+    
+    def res_shape(self, jacval, *args):
+        """Get shape of residuals from Jacobian values."""
+        a0 = args[self.argnums[0]]
+        if self.argnums[0] in self.excluded:
+            pass
+        else:
+            # Argument is vectorized, check signature
+            for i in reversed(self.excluded):
+                args.pop(i)
+            pass
+
+    def jacrow(self, obj):
+        pass
+
+    def __get__(self, obj, objtype=None):
+        return SparseResidualMethod(self, obj)
+
+
+class SparseResidualMethod:
+    """Sparse residual function bound to an object."""
+
+    def __init__(self, fun: SparseResidualFunction, obj):
+        self.fun = fun
+        """The underlying sparse residual function."""
+
+        self.obj = obj
+        """The object the method is bound to."""
+
+    def __call__(self, *args, **kwargs):
+        return self.fun.vfun(self.obj)(*args, **kwargs)
+    
+    def jacval(self, *args, **kwargs):
+        return self.fun.jacval(self.obj)(*args, **kwargs)
+
+
+def sparse_residual(f=None, **kwargs):
+    if f is None:
+        return functools.partial(sparse_residual, **kwargs) 
+
+     # Replace aliases
+    if 's' in kwargs:
+        kwargs['signature'] = kwargs['s']
+        del kwargs['s']
+    if 'e' in kwargs:
+        kwargs['excluded'] = kwargs['e']
+        del kwargs['e']
+    if 'n' in kwargs:
+        kwargs['argnums'] = kwargs['n']
+        del kwargs['n']
+
+    return SparseResidualFunction(f, **kwargs)

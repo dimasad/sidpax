@@ -89,7 +89,7 @@ class DimShortPeriod:
 
     @hedeut.jax_vectorize_method(signature='(x),(u)->(x)', excluded=2)
     def fc(self, x, u, param):
-        """State transition function."""
+        """Drift function."""
         # Unpack arguments
         alpha, q = x
         dele, = u
@@ -111,6 +111,10 @@ class DimShortPeriod:
         # Assemble state derivative vector
         xdot = jnp.array([alphadot, qdot])
         return xdot
+
+    def f(self, x, u, param):
+        """Discrete-time state transition function."""
+        return x + self.fc(x, u, param) * self.dt # Euler's method
 
     @hedeut.jax_vectorize_method(signature='(x),(u)->(y)', excluded=(2,))
     def h(self, x, u, param):
@@ -142,3 +146,4 @@ if __name__ == '__main__':
     param = est.param(dataest[0], init_key)
 
     est.res(dataest[0], param)
+    est.jacval(dataest[0], param)
