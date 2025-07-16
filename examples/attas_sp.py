@@ -147,3 +147,4 @@ if __name__ == '__main__':
 
     est.res(dataest[0], param)
     est.jacval(dataest[0], param)
+    est.jac(dataest[0], param)

@@ -62,6 +62,21 @@ class Estimator:
         S_cross = param.S_cross
         return self.outres.jacval(y, u, mu, p, Sigma_cond, S_cross)
 
+    def jac(self, data, param):
+        y = data.y
+        u = data.u
+        p = param.p
+        mu = param.mu
+        Sigma_cond = param.Sigma_cond
+        S_cross = param.S_cross
+        args = y, u, mu, p, Sigma_cond, S_cross
+        
+        paramint = jax.tree.map(lambda x: jnp.zeros_like(x, int), param)
+        paramvec, unravel = jax.flatten_util.ravel_pytree(paramint)
+        paramind = unravel(jnp.arange(paramvec.size))
+        arginds = paramind.mu, paramind.p, paramind.Sigma_cond, paramind.S_cross
+        return self.outres.jac(args, arginds)
+
     @stats.sparse_residual(i=(0, 0, 0, None, None, None), n=(2, 3, 4, 5))
     def outres(self, y, u, mu, p, Sigma_cond, S_cross):
         # Get the Cholesky factor of the marginal state covariance

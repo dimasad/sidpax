@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import jax_dataclasses as jdc
 import numpy as np
+from jax.flatten_util import ravel_pytree
 from scipy import special
 
 from . import common
@@ -166,28 +167,41 @@ class SparseResidualFunction:
         self.argnums = argnums
         """"Argument numbers wrt which the Jacobian is computed."""
 
-    def vfun(self, obj):
+    def vfun(self, obj, *args):
         method = self.f.__get__(obj)
-        return jax.vmap(method, self.in_axes, self.out_axes)
+        return jax.vmap(method, self.in_axes, self.out_axes)(*args)
 
-    def jacval(self, obj):
+    def jacval(self, obj, *args):
         method = self.f.__get__(obj)
         jac = jax.jacobian(method, argnums=self.argnums)
-        return jax.vmap(jac, self.in_axes, self.out_axes)
+        return jax.vmap(jac, self.in_axes, self.out_axes)(*args)
     
-    def res_shape(self, jacval, *args):
-        """Get shape of residuals from Jacobian values."""
-        a0 = args[self.argnums[0]]
-        if self.argnums[0] in self.excluded:
-            pass
-        else:
-            # Argument is vectorized, check signature
-            for i in reversed(self.excluded):
-                args.pop(i)
-            pass
+    def jac(self, obj, args, arginds):
+        # Get the Jacobian values
+        val = self.jacval(obj, *args)
 
-    def jacrow(self, obj):
-        pass
+        # Get the value shapes
+        val_shape = jax.tree.map(jnp.shape, val)
+
+        # Get the Jacobian column indices by broadcasting
+        def broadcast_col(argind, val_shape):
+            assert self.out_axes == 0, "This won't work with different axes"
+            key = (np.s_[:],) + (None,) * (len(val_shape) - argind.ndim)
+            return jnp.broadcast_to(argind[key], val_shape)
+        col = jax.tree.map(broadcast_col, arginds, val_shape)
+
+        # Get the residuals to obtain their indices
+        r = self.vfun(obj, *args)
+        res_ind = np.arange(r.size).reshape(r.shape)
+
+        # Broadcast residual indices to obtain column indices
+        def broadcast_row(argind):
+            key = (...,) + (None,) * (r.ndim - argind.ndim)
+            return jnp.broadcast_to(res_ind[key], argind.shape)
+        row = jax.tree.map(broadcast_row, arginds)
+
+        # Ravel the pytrees and pack in a tuple
+        return tuple(ravel_pytree(t)[0] for t in (row, col, val))
 
     def __get__(self, obj, objtype=None):
         return SparseResidualMethod(self, obj)
@@ -204,10 +218,13 @@ class SparseResidualMethod:
         """The object the method is bound to."""
 
     def __call__(self, *args):
-        return self.fun.vfun(self.obj)(*args)
+        return self.fun.vfun(self.obj, *args)
     
     def jacval(self, *args):
-        return self.fun.jacval(self.obj)(*args)
+        return self.fun.jacval(self.obj, *args)
+
+    def jac(self, args, arginds):
+        return self.fun.jac(self.obj, args, arginds)
 
 
 def sparse_residual(f=None, **kwargs):
