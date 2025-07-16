@@ -180,25 +180,37 @@ class SparseResidualFunction:
         # Get the Jacobian values
         val = self.jacval(obj, *args)
 
-        # Get the value shapes
-        val_shape = jax.tree.map(jnp.shape, val)
-
-        # Get the Jacobian column indices by broadcasting
-        def broadcast_col(argind, val_shape):
-            assert self.out_axes == 0, "This won't work with different axes"
-            key = (np.s_[:],) + (None,) * (len(val_shape) - argind.ndim)
-            return jnp.broadcast_to(argind[key], val_shape)
-        col = jax.tree.map(broadcast_col, arginds, val_shape)
-
         # Get the residuals to obtain their indices
         r = self.vfun(obj, *args)
         res_ind = np.arange(r.size).reshape(r.shape)
 
-        # Broadcast residual indices to obtain column indices
-        def broadcast_row(argind):
-            key = (...,) + (None,) * (r.ndim - argind.ndim)
-            return jnp.broadcast_to(res_ind[key], argind.shape)
-        row = jax.tree.map(broadcast_row, arginds)
+        assert self.out_axes == 0, "This won't work with different axes"
+
+        # Initialize output indices lists
+        col = []
+        row = []
+
+        # Go over all differentiated arguments and determine column indices
+        for n, argval, argind in zip(self.argnums, val, arginds):
+            if self.in_axes[n] is None:
+                colind = jax.tree.map(
+                    lambda i, v: jnp.broadcast_to(i, v.shape), argind, argval
+                )
+                col.append(colind)
+            else:
+                extradims = argval.ndim - argind.ndim
+                axis = jnp.arange(extradims) + 1
+                ind = jnp.expand_dims(argind, axis=axis)
+                col.append(jnp.broadcast_to(ind, argval.shape))
+
+        # Go over all differentiated arguments and determine row indices
+        for n, argval, argind in zip(self.argnums, val, arginds):
+            def treefun(v):
+                extradims = v.ndim - res_ind.ndim
+                axis = -jnp.arange(extradims) - 1
+                return jnp.broadcast_to(jnp.expand_dims(res_ind, axis), v.shape)
+            rowind = jax.tree.map(treefun, argval)
+            row.append(rowind)
 
         # Ravel the pytrees and pack in a tuple
         return tuple(ravel_pytree(t)[0] for t in (row, col, val))
