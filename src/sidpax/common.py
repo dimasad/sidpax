@@ -1,7 +1,10 @@
 """Common functions and utilities."""
 
 import dataclasses
+import inspect
 import math
+from functools import partial
+from inspect import signature
 from typing import Callable
 
 import hedeut
@@ -116,8 +119,27 @@ class VMapJacobianMethod:
         def jac_coo(self, args, arginds):
             return self.method.jac_coo(self.obj, args, arginds)
 
-    def __get__(self, obj, objtype=None):
+        def deal(self, *arg_objs):
+            args = self.method.getargs(*arg_objs)
+            return self(*args)
+
+        def deal_jac_coo(self, arg_objs, argind_objs):
+            args = self.method.getargs(*arg_objs)
+            arginds = self.method.getarginds(*argind_objs)
+            return self.jac_coo(args, arginds)
+
+    def __get__(self, obj, objtype=None) -> BoundMethod:
+        """Getter for binding this method to an object."""
         return self.BoundMethod(self, obj)
+
+    def getargs(self, *arg_objs):
+        argnames = signature(partial(self.f, None)).parameters.keys()
+        return getattrs(arg_objs, argnames)
+
+    def getarginds(self, *argind_objs):
+        argnames = list(signature(partial(self.f, None)).parameters.keys())
+        jacnames = [argnames[i] for i in sorted(self.jac_argnum)]
+        return getattrs(argind_objs, jacnames)
 
     def vmap(self, f: Callable):
         """Vectorize a callable like the underlying bound method."""
@@ -178,3 +200,44 @@ def vmap_jacobian_method(
         return VMapJacobianMethod(f, vec_argnum, jac_argnum, base_out_ndim)
 
     return decorator
+
+
+def getattrs(objs, names):
+    """Get a sequence of names from a sequence of objects or dicts."""
+    # Initialize return output object
+    attrs = []
+
+    # Iterate over names
+    for name in names:
+        # Initialize found flag for error checking
+        found = False
+        for obj in objs:
+            # Go to next if name found
+            if found:
+                break
+
+            # Choose getter based on object type
+            if isinstance(obj, dict):
+                try:
+                    attrs.append(obj[name])
+                    found = True
+                except KeyError:
+                    pass
+            else:
+                try:
+                    attrs.append(getattr(obj, name))
+                    found = True
+                except AttributeError:
+                    pass
+
+        # Check for error before proceeding to next name
+        if not found:
+            raise ValueError(f"Argument '{name}' not found in objs.")
+    return tuple(attrs)
+
+
+def pytree_ind(tree):
+    """Map pytree with numeric leaves to their index in flattened array."""
+    tree_asint = jax.tree.map(lambda leaf: jnp.astype(leaf, int), tree)
+    vector, unpack = jax.flatten_util.ravel_pytree(tree_asint)
+    return unpack(jnp.arange(vector.size))

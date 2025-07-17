@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import jax_dataclasses as jdc
 import numpy as np
-from sidpax import sem
+from sidpax import common, sem
 
 
 def program_args():
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     model = DimShortPeriod()
     est = sem.Estimator(model)
     param = est.param(dataest[0], init_key)
+    param_ind = common.pytree_ind(param)
 
-    est.res(dataest[0], param)
-    est.jacval(dataest[0], param)
-    est.jac_coo(dataest[0], param)
+    est.outres.deal(dataest[0], param)
+    est.outres.deal_jac_coo((dataest[0], param), (param_ind,))
