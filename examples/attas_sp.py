@@ -87,7 +87,7 @@ class DimShortPeriod:
         """Initialize the parameter structure."""
         return cls.Param()
 
-    @hedeut.jax_vectorize_method(signature='(x),(u)->(x)', excluded=2)
+    @hedeut.jax_vectorize_method(signature='(x),(u)->(x)', excluded={2})
     def fc(self, x, u, param):
         """Drift function."""
         # Unpack arguments
@@ -116,7 +116,7 @@ class DimShortPeriod:
         """Discrete-time state transition function."""
         return x + self.fc(x, u, param) * self.dt # Euler's method
 
-    @hedeut.jax_vectorize_method(signature='(x),(u)->(y)', excluded=(2,))
+    @hedeut.jax_vectorize_method(signature='(x),(u)->(y)', excluded={2})
     def h(self, x, u, param):
         """Output function."""
         # Unpack arguments
