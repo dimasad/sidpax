@@ -174,7 +174,7 @@ class VMapJacobianMethod:
         # Get the Jacobian row indices by broadcasting the output indices
         def row_ind(val_leaf):
             ndim_diff = val_leaf.ndim - out_ndim
-            expanded = jnp.expand_dims(out_ind, -jnp.arange(ndim_diff) - 1)
+            expanded = jnp.expand_dims(out_ind, -np.arange(ndim_diff) - 1)
             return jnp.broadcast_to(expanded, val_leaf.shape)
 
         row = jax.tree.map(row_ind, val)
@@ -186,11 +186,11 @@ class VMapJacobianMethod:
         def col_ind(val_leaf, arg_leaf, argind_leaf):
             ndim_diff = val_leaf.ndim - argind_leaf.ndim
             vectorized = out_ndim + jnp.ndim(arg_leaf) > val_leaf.ndim
-            expanded = jnp.expand_dims(argind_leaf, jnp.arange(ndim_diff) + vectorized)
+            expanded = jnp.expand_dims(argind_leaf, np.arange(ndim_diff) + vectorized)
             return jnp.broadcast_to(expanded, val_leaf.shape)
 
         col = jax.tree.map(col_ind, val, jac_args, tuple(arginds))
-        return tuple(jax.flatten_util.ravel_pytree(t)[0] for t in (row, col, val))
+        return row, col, val
 
 
 def vmap_jacobian_method(

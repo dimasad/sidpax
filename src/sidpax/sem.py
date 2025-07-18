@@ -8,6 +8,7 @@ import jax.flatten_util
 import jax.numpy as jnp
 import jax.scipy as jsp
 import jax_dataclasses as jdc
+from jax.flatten_util import ravel_pytree
 
 from . import common, stats
 
@@ -113,6 +114,53 @@ class Estimator:
 
         # Return negate to get the cost for minimization
         return -elbo
+
+    def cost_grad(self, data, param):
+        """Cost function gradient."""
+        return jax.grad(self.cost, 1)(data, param)
+
+    def nres_jac_coo(self, data, param, param_ind=None):
+        # Get the parameter indices, if needed
+        if param_ind == None:
+            param_ind = common.pytree_ind(param)
+
+        extra_args = self.extra_args(data, param)
+        extra_arginds = self.extra_args(data, param_ind)
+
+        # Get the residual normalization matrices
+        xresn, yresn, Q_chol, R_chol = self.nres(data, param)
+
+        # Invert the residual normalization matrices (please don't judge me)
+        Q_chol_inv = jnp.linalg.inv(Q_chol)
+        R_chol_inv = jnp.linalg.inv(R_chol)
+        Q_inv = Q_chol_inv.T @ Q_chol_inv
+        R_inv = R_chol_inv.T @ R_chol_inv
+
+        # Get the residual Jacobian matrices
+        xres_jac_coo = self.xres.deal_jac_coo(
+            (data, param, extra_args), (param_ind, extra_arginds)
+        )
+        yres_jac_coo = self.yres.deal_jac_coo((data, param), (param_ind,))
+
+        # Normalize the Jacobian matrices
+        xresn_jac_val = jax.tree.map(
+            lambda leaf: jnp.einsum("ij,Nsj...->Nsi...", Q_inv, leaf),
+            xres_jac_coo[-1],
+        )
+        yresn_jac_val = jax.tree.map(
+            lambda leaf: jnp.einsum("ij,Nsj...->Nsi...", R_inv, leaf),
+            yres_jac_coo[-1],
+        )
+
+        # Get the number of x residuals and shift row index to stack Jacobians
+        nxres = xresn.size 
+        yres_jac_row = ravel_pytree(yres_jac_coo[0])[0] + nxres
+
+        # Flatten the pytrees and return
+        row = ravel_pytree((xres_jac_coo[0], yres_jac_row))[0]
+        col = ravel_pytree((xres_jac_coo[1], yres_jac_coo[1]))[0]
+        val = ravel_pytree((xresn_jac_val, yresn_jac_val))[0]
+        return row, col, val
 
     @common.vmap_jacobian_method(
         vec_argnum={0, 1, 2}, jac_argnum={2, 3, 4, 5}, base_out_ndim=2
