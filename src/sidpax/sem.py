@@ -46,14 +46,14 @@ class Estimator:
     def __init__(self, model):
         self.model = model
 
-    def extra_args(self, data, param):
+    def extra_args(self, data, param: Param):
         return dict(
             mu_next=param.mu[1:],
             mu_curr=param.mu[:-1],
             u_curr=data.u[:-1],
         )
 
-    def res(self, data, param):
+    def res(self, data, param: Param):
         """All smoother error residuals"""
         extra_args = self.extra_args(data, param)
         xres = self.xres.deal(data, param, extra_args)
@@ -160,6 +160,21 @@ class Estimator:
         row = ravel_pytree((xres_jac_coo[0], yres_jac_row))[0]
         col = ravel_pytree((xres_jac_coo[1], yres_jac_coo[1]))[0]
         val = ravel_pytree((xresn_jac_val, yresn_jac_val))[0]
+        return row, col, val
+    
+    def entropy_hess_coo(self, data, param: Param, param_ind=None):
+        """Entropy Hessian in COO format, but it will always be zero..."""
+        # Get the parameter indices, if needed
+        if param_ind == None:
+            param_ind = common.pytree_ind(param)
+
+        vec, unpack = ravel_pytree(param.Sigma_cond)
+        vec_ind = ravel_pytree(param_ind.Sigma_cond)[0]
+
+        entro_flat = lambda v: self.state_path_entropy(unpack(v), len(data))
+        val = jax.hessian(entro_flat)(vec)
+        row = jnp.repeat(vec_ind, vec.size)
+        col = jnp.tile(vec_ind, vec.size)
         return row, col, val
 
     @common.vmap_jacobian_method(
