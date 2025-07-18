@@ -146,5 +146,5 @@ if __name__ == '__main__':
     param = est.param(dataest[0], init_key)
     param_ind = common.pytree_ind(param)
 
-    est.outres.deal(dataest[0], param)
-    est.outres.deal_jac_coo((dataest[0], param), (param_ind,))
+    est.yres.deal(dataest[0], param)
+    est.yres.deal_jac_coo((dataest[0], param), (param_ind,))

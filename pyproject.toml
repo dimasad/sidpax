@@ -28,3 +28,6 @@ devextra = [
 
 [project.urls]
 Repository = "https://github.com/dimasad/sidpax"
+
+[tool.black]
+line-length = 80

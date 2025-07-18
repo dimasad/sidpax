@@ -6,6 +6,7 @@ import hedeut
 import jax
 import jax.flatten_util
 import jax.numpy as jnp
+import jax.scipy as jsp
 import jax_dataclasses as jdc
 
 from . import common, stats
@@ -54,14 +55,69 @@ class Estimator:
     def res(self, data, param):
         """All smoother error residuals"""
         extra_args = self.extra_args(data, param)
-        outres = self.outres.deal(data, param, extra_args)
-        transres = self.transres.deal(data, param, extra_args)
-        return outres, transres
+        xres = self.xres.deal(data, param, extra_args)
+        yres = self.yres.deal(data, param, extra_args)
+        return xres, yres
+
+    def nres(self, data, param):
+        """Normalized residuals and their covariance."""
+        # Compute residuals
+        xres, yres = self.res(data, param)
+
+        # Compute residual outer products
+        xres_outer = jnp.einsum("...i,...j->...ij", xres, xres)
+        yres_outer = jnp.einsum("...i,...j->...ij", yres, yres)
+
+        # Average over time and posterior sample
+        Q = xres_outer.mean((0, 1))
+        R = yres_outer.mean((0, 1))
+
+        # Perform Cholesky decomposition
+        Q_chol = jsp.linalg.cholesky(Q, lower=True)
+        R_chol = jsp.linalg.cholesky(R, lower=True)
+
+        # Normalize residuals and return
+        cho_solve = jnp.vectorize(
+            lambda L, b: jsp.linalg.cho_solve((L, True), b),
+            signature="(n,n),(n)->(n)",
+        )
+        xresn = cho_solve(Q_chol, xres)
+        yresn = cho_solve(R_chol, yres)
+        return xresn, yresn, Q_chol, R_chol
+
+    @staticmethod
+    def state_path_entropy(Sigma_cond, N):
+        """Differential entropy of the state-path posterior."""
+        S_cond = Sigma_cond.chol
+        logdet_Sigma_cond = 2 * jnp.log(jnp.diagonal(S_cond)).sum()
+        return 0.5 * logdet_Sigma_cond * N
+
+    def cost(self, data, param):
+        """Optimization cost function."""
+        # Obtain residual covariance matrices
+        xresn, yresn, Q_chol, R_chol = self.nres(data, param)
+
+        # Compute covariance log determinant
+        logdet_Q = 2 * jnp.log(jnp.diagonal(Q_chol)).sum()
+        logdet_R = 2 * jnp.log(jnp.diagonal(R_chol)).sum()
+
+        # Compute average complete data log likelihood
+        N = len(data)
+        avg_log_like = -0.5 * (N * logdet_R + (N - 1) * logdet_Q)
+
+        # Get the differential entropy of the state-path posterior
+        entropy = self.state_path_entropy(param.Sigma_cond, N)
+
+        # Add both terms for the ELBO
+        elbo = avg_log_like + entropy
+
+        # Return negate to get the cost for minimization
+        return -elbo
 
     @common.vmap_jacobian_method(
         vec_argnum={0, 1, 2}, jac_argnum={2, 3, 4, 5}, base_out_ndim=2
     )
-    def outres(self, y, u, mu, p, Sigma_cond, S_cross):
+    def yres(self, y, u, mu, p, Sigma_cond, S_cross):
         """Measurement output residuals."""
         # Get the Cholesky factor of the marginal state covariance
         S_cond = Sigma_cond.chol
@@ -81,9 +137,11 @@ class Estimator:
         return y - self.model.h(xsamp, u, p)
 
     @common.vmap_jacobian_method(
-        vec_argnum={0, 1, 2}, jac_argnum={0, 1, 3, 4, 5}, base_out_ndim=2
+        vec_argnum={0, 1, 2},
+        jac_argnum={0, 1, 3, 4, 5},
+        base_out_ndim=2,
     )
-    def transres(self, mu_next, mu_curr, u_curr, p, Sigma_cond, S_cross):
+    def xres(self, mu_next, mu_curr, u_curr, p, Sigma_cond, S_cross):
         """Discrete-time state transition residuals."""
         # Get the Cholesky factor of the marginal state covariance
         S_cond = Sigma_cond.chol
