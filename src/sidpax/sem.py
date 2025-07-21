@@ -78,12 +78,12 @@ class Estimator:
         R_chol = jsp.linalg.cholesky(R, lower=True)
 
         # Normalize residuals and return
-        cho_solve = jnp.vectorize(
-            lambda L, b: jsp.linalg.cho_solve((L, True), b),
+        solve_triangular = jnp.vectorize(
+            lambda L, b: jsp.linalg.solve_triangular(L, b, lower=True),
             signature="(n,n),(n)->(n)",
         )
-        xresn = cho_solve(Q_chol, xres)
-        yresn = cho_solve(R_chol, yres)
+        xresn = solve_triangular(Q_chol, xres)
+        yresn = solve_triangular(R_chol, yres)
         return xresn, yresn, Q_chol, R_chol
 
     @staticmethod
@@ -119,6 +119,25 @@ class Estimator:
         """Cost function gradient."""
         return jax.grad(self.cost, 1)(data, param)
 
+    def cost_2step_grad(self, data, param):
+        Q_chol, R_chol = self.nres(data, param)[-2:]
+        solve_triangular = jnp.vectorize(
+            lambda L, b: jsp.linalg.solve_triangular(L, b, lower=True),
+            signature="(n,n),(n)->(n)",
+        )
+
+        def cost_step2(param):
+            xres, yres = self.res(data, param)
+            xresn = solve_triangular(Q_chol, xres)
+            yresn = solve_triangular(R_chol, yres)
+
+            xsq_err = 0.5 * jnp.sum(xresn**2, (0, 2)).mean()
+            ysq_err = 0.5 * jnp.sum(yresn**2, (0, 2)).mean()
+            entropy = self.state_path_entropy(param.Sigma_cond, len(data))
+            return xsq_err + ysq_err - entropy
+
+        return jax.grad(cost_step2)(param)
+
     def nres_jac_coo(self, data, param, param_ind=None):
         # Get the parameter indices, if needed
         if param_ind == None:
@@ -153,7 +172,7 @@ class Estimator:
         )
 
         # Get the number of x residuals and shift row index to stack Jacobians
-        nxres = xresn.size 
+        nxres = xresn.size
         yres_jac_row = ravel_pytree(yres_jac_coo[0])[0] + nxres
 
         # Flatten the pytrees and return
@@ -161,7 +180,7 @@ class Estimator:
         col = ravel_pytree((xres_jac_coo[1], yres_jac_coo[1]))[0]
         val = ravel_pytree((xresn_jac_val, yresn_jac_val))[0]
         return row, col, val
-    
+
     def entropy_hess_coo(self, data, param: Param, param_ind=None):
         """Entropy Hessian in COO format, but it will always be zero..."""
         # Get the parameter indices, if needed
