@@ -46,24 +46,11 @@ class Estimator:
     def __init__(self, model):
         self.model = model
 
-    def extra_args(self, data, param: Param):
-        return dict(
-            mu_next=param.mu[1:],
-            mu_curr=param.mu[:-1],
-            u_curr=data.u[:-1],
-        )
-
-    def res(self, data, param: Param):
-        """All smoother error residuals"""
-        extra_args = self.extra_args(data, param)
-        xres = self.xres.deal(data, param, extra_args)
-        yres = self.yres.deal(data, param, extra_args)
-        return xres, yres
-
-    def nres(self, data, param):
-        """Normalized residuals and their covariance."""
+    def res_cov(self, data, param):
+        """Residuals covariance matrices."""
         # Compute residuals
-        xres, yres = self.res(data, param)
+        xres = self.xres(data, param)
+        yres = self.yres(data, param)
 
         # Compute residual outer products
         xres_outer = jnp.einsum("...i,...j->...ij", xres, xres)
@@ -73,18 +60,10 @@ class Estimator:
         Q = xres_outer.mean((0, 1))
         R = yres_outer.mean((0, 1))
 
-        # Perform Cholesky decomposition
+        # Perform Cholesky decomposition and return
         Q_chol = jsp.linalg.cholesky(Q, lower=True)
         R_chol = jsp.linalg.cholesky(R, lower=True)
-
-        # Normalize residuals and return
-        solve_triangular = jnp.vectorize(
-            lambda L, b: jsp.linalg.solve_triangular(L, b, lower=True),
-            signature="(n,n),(n)->(n)",
-        )
-        xresn = solve_triangular(Q_chol, xres)
-        yresn = solve_triangular(R_chol, yres)
-        return xresn, yresn, Q_chol, R_chol
+        return Q_chol, R_chol
 
     @staticmethod
     def state_path_entropy(Sigma_cond, N):
@@ -96,7 +75,7 @@ class Estimator:
     def cost(self, data, param):
         """Optimization cost function."""
         # Obtain residual covariance matrices
-        xresn, yresn, Q_chol, R_chol = self.nres(data, param)
+        Q_chol, R_chol = self.res_cov(data, param)
 
         # Compute covariance log determinant
         logdet_Q = 2 * jnp.log(jnp.diagonal(Q_chol)).sum()
@@ -120,16 +99,15 @@ class Estimator:
         return jax.grad(self.cost, 1)(data, param)
 
     def cost_2step_grad(self, data, param):
-        Q_chol, R_chol = self.nres(data, param)[-2:]
+        Q_chol, R_chol = self.res_cov(data, param)
         solve_triangular = jnp.vectorize(
             lambda L, b: jsp.linalg.solve_triangular(L, b, lower=True),
             signature="(n,n),(n)->(n)",
         )
 
         def cost_step2(param):
-            xres, yres = self.res(data, param)
-            xresn = solve_triangular(Q_chol, xres)
-            yresn = solve_triangular(R_chol, yres)
+            xresn = solve_triangular(Q_chol, self.xres(data, param))
+            yresn = solve_triangular(R_chol, self.yres(data, param))
 
             xsq_err = 0.5 * jnp.sum(xresn**2, (0, 2)).mean()
             ysq_err = 0.5 * jnp.sum(yresn**2, (0, 2)).mean()
@@ -137,49 +115,6 @@ class Estimator:
             return xsq_err + ysq_err - entropy
 
         return jax.grad(cost_step2)(param)
-
-    def nres_jac_coo(self, data, param, param_ind=None):
-        # Get the parameter indices, if needed
-        if param_ind == None:
-            param_ind = common.pytree_ind(param)
-
-        extra_args = self.extra_args(data, param)
-        extra_arginds = self.extra_args(data, param_ind)
-
-        # Get the residual normalization matrices
-        xresn, yresn, Q_chol, R_chol = self.nres(data, param)
-
-        # Invert the residual normalization matrices (please don't judge me)
-        Q_chol_inv = jnp.linalg.inv(Q_chol)
-        R_chol_inv = jnp.linalg.inv(R_chol)
-        Q_inv = Q_chol_inv.T @ Q_chol_inv
-        R_inv = R_chol_inv.T @ R_chol_inv
-
-        # Get the residual Jacobian matrices
-        xres_jac_coo = self.xres.deal_jac_coo(
-            (data, param, extra_args), (param_ind, extra_arginds)
-        )
-        yres_jac_coo = self.yres.deal_jac_coo((data, param), (param_ind,))
-
-        # Normalize the Jacobian matrices
-        xresn_jac_val = jax.tree.map(
-            lambda leaf: jnp.einsum("ij,Nsj...->Nsi...", Q_inv, leaf),
-            xres_jac_coo[-1],
-        )
-        yresn_jac_val = jax.tree.map(
-            lambda leaf: jnp.einsum("ij,Nsj...->Nsi...", R_inv, leaf),
-            yres_jac_coo[-1],
-        )
-
-        # Get the number of x residuals and shift row index to stack Jacobians
-        nxres = xresn.size
-        yres_jac_row = ravel_pytree(yres_jac_coo[0])[0] + nxres
-
-        # Flatten the pytrees and return
-        row = ravel_pytree((xres_jac_coo[0], yres_jac_row))[0]
-        col = ravel_pytree((xres_jac_coo[1], yres_jac_coo[1]))[0]
-        val = ravel_pytree((xresn_jac_val, yresn_jac_val))[0]
-        return row, col, val
 
     def entropy_hess_coo(self, data, param: Param, param_ind=None):
         """Entropy Hessian in COO format, but it will always be zero..."""
@@ -196,14 +131,11 @@ class Estimator:
         col = jnp.tile(vec_ind, vec.size)
         return row, col, val
 
-    @common.vmap_jacobian_method(
-        vec_argnum={0, 1, 2}, jac_argnum={2, 3, 4, 5}, base_out_ndim=2
-    )
-    def yres(self, y, u, mu, p, Sigma_cond, S_cross):
-        """Measurement output residuals."""
+    def yres_sample(self, datum: Data, param: Param):
+        """Measurement output residuals for a single time sample."""
         # Get the Cholesky factor of the marginal state covariance
-        S_cond = Sigma_cond.chol
-        S_marg = common.tria_qr(S_cond, S_cross)
+        S_cond = param.Sigma_cond.chol
+        S_marg = common.tria_qr(S_cond, param.S_cross)
 
         # Get the standard normal sigma points and weights.
         # Note that weights will be discarded, as they are all equal.
@@ -213,21 +145,28 @@ class Estimator:
         xdev = jnp.matvec(S_marg, std_dev)
 
         # Add the mean
-        xsamp = mu + xdev
+        xsamp = param.mu + xdev
 
         # Return the residuals
-        return y - self.model.h(xsamp, u, p)
+        return datum.y - self.model.h(xsamp, datum.u, param.p)
 
-    @common.vmap_jacobian_method(
-        vec_argnum={0, 1, 2},
-        jac_argnum={0, 1, 3, 4, 5},
-        base_out_ndim=2,
-    )
-    def xres(self, mu_next, mu_curr, u_curr, p, Sigma_cond, S_cross):
-        """Discrete-time state transition residuals."""
+    def yres(self, data: Data, param: Param):
+        """Measurement output residuals for a full trajectory."""
+        in_axes = 0, self.Param(p=None, mu=0, Sigma_cond=None, S_cross=None)
+        return jax.vmap(self.yres_sample, in_axes)(data, param)
+
+    def xres_args(self, data, param: Param):
+        return dict(
+            mu_next=param.mu[1:],
+            mu_curr=param.mu[:-1],
+            u_curr=data.u[:-1],
+        )
+
+    def xres_sample(self, mu_next, mu_curr, u_curr, param: Param):
+        """Discrete-time state transition residuals for a single sample pair."""
         # Get the Cholesky factor of the marginal state covariance
-        S_cond = Sigma_cond.chol
-        S_marg = common.tria_qr(S_cond, S_cross)
+        S_cond = param.Sigma_cond.chol
+        S_marg = common.tria_qr(S_cond, param.S_cross)
 
         # Get the standard normal sigma points and weights.
         # Note that weights will be discarded, as they are all equal.
@@ -236,7 +175,7 @@ class Estimator:
 
         # Scale the sigma points
         x_curr_dev = jnp.matvec(S_marg, std_dev[:, :nx])
-        x_next_dev = jnp.matvec(S_cross, std_dev[:, :nx]) + jnp.matvec(
+        x_next_dev = jnp.matvec(param.S_cross, std_dev[:, :nx]) + jnp.matvec(
             S_cond, std_dev[:, -nx:]
         )
 
@@ -245,4 +184,10 @@ class Estimator:
         x_next = mu_next + x_next_dev
 
         # Return the residuals
-        return x_next - x_curr - self.model.f(x_curr, u_curr, p)
+        return x_next - x_curr - self.model.f(x_curr, u_curr, param.p)
+
+    def xres(self, data: Data, param: Param):
+        """Discrete-time state transition residuals for a full trajectory."""
+        xres_sample_vmap = jax.vmap(self.xres_sample, in_axes=(0, 0, 0, None))
+        xres_args = self.xres_args(data, param).values()
+        return xres_sample_vmap(*xres_args, param)
