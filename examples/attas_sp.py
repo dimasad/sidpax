@@ -3,8 +3,10 @@
 """ATTAS short-period motion."""
 
 import argparse
+import importlib
 import pathlib
 import sys
+from dataclasses import dataclass, field
 
 import hedeut
 import jax
@@ -13,54 +15,68 @@ import jax.numpy as jnp
 import jax_dataclasses as jdc
 import numpy as np
 from scipy import optimize, sparse
+import tyro
 
 from sidpax import common, sem
 
 
-def program_args():
-    parser = argparse.ArgumentParser(
-        description=__doc__, fromfile_prefix_chars="@"
-    )
-    parser.add_argument(
-        "--datafiles", type=pathlib.Path, nargs="*", help="Input data files."
-    )
-    parser.add_argument(
-        "--maxiter",
-        type=int,
-        default=200,
-        help="Maximum number of optimizer iterations.",
-    )
-    parser.add_argument(
-        "--output",
-        type=pathlib.Path,
-        help="File name base for saving the script output.",
-    )
-    parser.add_argument(
-        "--plot", action="store_true", help="Show plots interactively."
-    )
+@dataclass
+class CLIArguments:
+    """Script command-line arguments."""
 
-    # Parse command-line arguments
-    args = parser.parse_args()
-
-    # Choose default datafiles if none selected
-    if not args.output:
-        script_path = pathlib.Path(sys.argv[0])
-        out_dir = script_path.parent / "output"
-        args.output = out_dir / script_path.with_suffix(".plot").name
-
-    # Choose default datafiles if none selected
-    if not args.datafiles:
+    @staticmethod
+    def _datafiles_factory():
         data_dir = pathlib.Path(sys.argv[0]).parent / "data"
-        args.datafiles = [
+        return [
             data_dir / "fAttasElv1.asc",
             data_dir / "fAttasElv2.asc",
         ]
 
-    # Validate parameters
-    assert all(f.exists() for f in args.datafiles), "Datafiles missing."
+    @staticmethod
+    def _output_factory():
+        script_path = pathlib.Path(sys.argv[0])
+        out_dir = script_path.parent / "output"
+        return out_dir / script_path.with_suffix(".plot").name
 
-    # Return parsed arguments
-    return args
+    datafiles: list[pathlib.Path] = field(default_factory=_datafiles_factory)
+    """Input data files."""
+
+    maxiter: int = 200
+    """Maximum number of optimizer iterations."""
+
+    output: pathlib.Path = field(default_factory=_output_factory)
+    """File name base for saving the script output."""
+
+    plot: bool = False
+    """Show plots interactively."""
+
+    reload: list[str] = field(default_factory=list)
+    """Modules to reload."""
+
+    jax_x64: bool = True
+    """Use double precision (64bits) in JAX."""
+
+    jax_platform: str = "cpu"
+    """JAX platform (processing unit) to use."""
+
+    def __post_init__(self):
+        """Validate arguments and apply settings."""
+        for f in self.datafiles:
+            if not f.exists():
+                raise ValueError(f"Datafile {f} does not exist.")
+
+        if self.maxiter <= 0:
+            raise ValueError("Maximum iterations must be positive.")
+        
+        for module_name in self.reload:
+            module = importlib.import_module(module_name)
+            importlib.reload(module)
+
+        if self.jax_x64:
+            jax.config.update('jax_enable_x64', True)
+        
+        if self.jax_platform:
+            jax.config.update('jax_platform_name', self.jax_platform)
 
 
 class DimShortPeriod:
@@ -131,9 +147,7 @@ class DimShortPeriod:
 
 
 if __name__ == "__main__":
-    args = program_args()
-
-    jax.config.update("jax_enable_x64", True)
+    args = tyro.cli(CLIArguments, description=__doc__)
 
     # Load Datafiles (all segments)
     d2r = np.pi / 180
