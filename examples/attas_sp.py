@@ -41,7 +41,7 @@ class CLIArguments:
     datafiles: list[pathlib.Path] = field(default_factory=_datafiles_factory)
     """Input data files."""
 
-    maxiter: int = 200
+    maxiter: int = 100
     """Maximum number of optimizer iterations."""
 
     output: pathlib.Path = field(default_factory=_output_factory)
@@ -171,24 +171,14 @@ if __name__ == "__main__":
 
     cost = jax.jit(lambda v: est.cost(data[0], unpack(v)))
     grad = jax.jit(jax.grad(cost))
-    jac_coo = jax.jit(est.nres_jac_coo)
+    hess_dense = jax.jit(jax.hessian(cost))
+    hess_coo = jax.jit(lambda v: est.cost_hess(data[0], unpack(v)))
+    hess = lambda v: sparse.coo_array(hess_coo(v)).tocsc()
 
-    def hess(v):
-        jaci, jacj, jacv = jac_coo(data[0], unpack(v))
-        J = sparse.coo_array((jacv, (jaci, jacj))).tocsc()
-        return (J.T @ J).tocoo()
-    
-    from cyipopt import minimize_ipopt
-    hess = jax.jit(jax.hessian(cost))
-    result = minimize_ipopt(
-        cost, paramvec, jac=grad, hess=hess, options=dict(disp=5, maxiter=100, linear_solver='ma57')
+    result = optimize.minimize(
+        cost, paramvec, method='trust-constr', jac=grad, hess=hess,
+        options=dict(verbose=2, maxiter=args.maxiter)
     )
-
-    # hess = jax.jit(jax.hessian(cost))
-    # result = optimize.minimize(
-    #     cost, paramvec, method='trust-constr', jac=grad, hess=hess,
-    #     options=dict(verbose=2, maxiter=10000)
-    # )
 
     paramopt = unpack(result.x)
     yopt = est.model.h(paramopt.mu, data[0].u, paramopt.p)

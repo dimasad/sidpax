@@ -97,6 +97,43 @@ class Estimator:
         """Cost function gradient."""
         return jax.grad(self.cost, 1)(data, param)
 
+    def xres_cost_hess(self, data, param, param_ind=None):
+        """Transition residual cost-function sparse Hessian, in COO format."""
+        # Get the parameter indices, if needed
+        if param_ind == None:
+            param_ind = common.pytree_ind(param)
+
+        # Get the Cholesky factor of the residual covariance matrices
+        Q_chol, R_chol = self.res_cov(data, param)
+
+        # Get the transition residual arguments and indices
+        args = self.xres_args(data, param)
+        args_ind = self.xres_args(data, param_ind)
+
+        # Get the pytree of a single argument block
+        u_curr, mu_next, mu_curr = args[:3]
+        block_tree = (mu_next[0], mu_curr[0], *args[3:])
+
+        # Ravel (flatten) a block and obtain the unravelling function
+        block, unravel_block = ravel_pytree(block_tree)
+
+        # Vectorized function for ravelling flattening all blocks into a matrix
+        ravel_blocks = jax.vmap(
+            lambda *tree: ravel_pytree(tree)[0],
+            in_axes=(0, 0, None, None, None),
+        )
+
+        # Equivalent cost function for Hessian, using the squared error
+        def sqerr(param_block, u_curr):
+            xres = self.xres_sample(u_curr, *unravel_block(param_block))
+            xresn = jsp.linalg.solve_triangular(Q_chol, xres.T, lower=True).T
+            return 0.5 * jnp.sum(xresn**2, axis=1).mean(axis=0)
+
+        val = jax.vmap(jax.hessian(sqerr))(ravel_blocks(*args[1:]), u_curr)
+        row = jnp.repeat(ravel_blocks(*args_ind[1:]), len(block), -1)
+        col = jnp.tile(ravel_blocks(*args_ind[1:]), (1, len(block)))
+        return val, (row, col)
+
     def yres_cost_hess(self, data, param, param_ind=None):
         """Output residual cost-function sparse Hessian, in COO format."""
         # Get the parameter indices, if needed
@@ -113,7 +150,7 @@ class Estimator:
         block, unravel_block = ravel_pytree(block_tree)
 
         # Vectorized function for ravelling flattening all blocks into a matrix
-        ravel_yres_blocks = jax.vmap(
+        ravel_blocks = jax.vmap(
             lambda tree: ravel_pytree(tree)[0],
             in_axes=(self.Param(p=None, mu=0, Sigma_cond=None, S_cross=None),),
         )
@@ -123,27 +160,20 @@ class Estimator:
             param = unravel_block(param_block)
             yres = self.yres_sample(datum, param)
             yresn = jsp.linalg.solve_triangular(R_chol, yres.T, lower=True).T
-            return jnp.sum(yresn**2, axis=1).mean(axis=0)
+            return 0.5 * jnp.sum(yresn**2, axis=1).mean(axis=0)
 
-        val = jax.vmap(jax.hessian(sqerr))(ravel_yres_blocks(param), data)
-        row = jnp.repeat(ravel_yres_blocks(param_ind), len(block), -1)
-        col = jnp.tile(ravel_yres_blocks(param_ind), (1, len(block)))
+        val = jax.vmap(jax.hessian(sqerr))(ravel_blocks(param), data)
+        row = jnp.repeat(ravel_blocks(param_ind), len(block), -1)
+        col = jnp.tile(ravel_blocks(param_ind), (1, len(block)))
         return val, (row, col)
 
-    def entropy_hess_coo(self, data, param: Param, param_ind=None):
-        """Entropy Hessian in COO format, but it will always be zero..."""
-        # Get the parameter indices, if needed
-        if param_ind == None:
-            param_ind = common.pytree_ind(param)
-
-        vec, unpack = ravel_pytree(param.Sigma_cond)
-        vec_ind = ravel_pytree(param_ind.Sigma_cond)[0]
-
-        entro_flat = lambda v: self.state_path_entropy(unpack(v), len(data))
-        val = jax.hessian(entro_flat)(vec)
-        row = jnp.repeat(vec_ind, vec.size)
-        col = jnp.tile(vec_ind, vec.size)
-        return row, col, val
+    def cost_hess(self, data, param, param_ind=None):
+        xres_hess = self.xres_cost_hess(data, param, param_ind)
+        yres_hess = self.yres_cost_hess(data, param, param_ind)
+        v = ravel_pytree([h[0] for h in [xres_hess, yres_hess]])[0]
+        i = ravel_pytree([h[1][0] for h in [xres_hess, yres_hess]])[0]
+        j = ravel_pytree([h[1][1] for h in [xres_hess, yres_hess]])[0]
+        return v, (i, j)
 
     def yres_sample(self, datum: Data, param: Param):
         """Measurement output residuals for a single time sample."""
