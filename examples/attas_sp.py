@@ -17,7 +17,7 @@ import numpy as np
 from scipy import optimize, sparse
 import tyro
 
-from sidpax import common, sem
+from sidpax import common, sem, cli
 
 
 @dataclass
@@ -38,6 +38,12 @@ class CLIArguments:
         out_dir = script_path.parent / "output"
         return out_dir / script_path.with_suffix(".plot").name
 
+    testing: cli.TestingArguments
+    """Testing arguments."""
+
+    jax: cli.JaxArguments
+    """JAX configuration arguments."""
+
     datafiles: list[pathlib.Path] = field(default_factory=_datafiles_factory)
     """Input data files."""
 
@@ -50,15 +56,6 @@ class CLIArguments:
     plot: bool = False
     """Show plots interactively."""
 
-    reload: list[str] = field(default_factory=list)
-    """Modules to reload."""
-
-    jax_x64: bool = True
-    """Use double precision (64bits) in JAX."""
-
-    jax_platform: str = "cpu"
-    """JAX platform (processing unit) to use."""
-
     def __post_init__(self):
         """Validate arguments and apply settings."""
         for f in self.datafiles:
@@ -67,16 +64,6 @@ class CLIArguments:
 
         if self.maxiter <= 0:
             raise ValueError("Maximum iterations must be positive.")
-        
-        for module_name in self.reload:
-            module = importlib.import_module(module_name)
-            importlib.reload(module)
-
-        if self.jax_x64:
-            jax.config.update('jax_enable_x64', True)
-        
-        if self.jax_platform:
-            jax.config.update('jax_platform_name', self.jax_platform)
 
 
 class DimShortPeriod:
@@ -176,9 +163,13 @@ if __name__ == "__main__":
     hess = lambda v: sparse.coo_array(hess_coo(v)).tocsc()
 
     result = optimize.minimize(
-        cost, paramvec, method='trust-constr', jac=grad, hess=hess,
-        options=dict(verbose=2, maxiter=args.maxiter)
+        cost,
+        paramvec,
+        method="trust-constr",
+        jac=grad,
+        hess=hess,
+        options=dict(verbose=2, maxiter=args.maxiter),
     )
 
-    paramopt = unpack(result.x)
+    paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
     yopt = est.model.h(paramopt.mu, data[0].u, paramopt.p)

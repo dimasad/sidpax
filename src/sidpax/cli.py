@@ -2,7 +2,7 @@
 
 import importlib
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import jax
@@ -17,13 +17,13 @@ class JaxArguments:
     x64: bool = False
     """Use double precision (64bits) in JAX."""
 
-    platform: Literal["cpu", "gpu"] | None = None
+    platform: Literal["auto", "cpu", "gpu"] = "auto"
     """JAX platform (processing unit) to use."""
 
     def __post_init__(self):
         if self.x64:
             jax.config.update("jax_enable_x64", True)
-        if self.platform is not None:
+        if self.platform != "auto":
             jax.config.update("jax_platform_name", self.platform)
 
 
@@ -31,7 +31,7 @@ class JaxArguments:
 class TestingArguments:
     """Interactive testing configuration arguments."""
 
-    reload: list[str] = []
+    reload: list[str] = field(default_factory=list)
     """Modules to reload after the script starts."""
 
     def __post_init__(self):
