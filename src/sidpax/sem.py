@@ -1,6 +1,7 @@
 """Smoother-Error Method."""
 
 import typing
+from dataclasses import dataclass
 
 import hedeut
 import jax
@@ -26,7 +27,18 @@ class Data:
         return len(self.y)
 
 
+@dataclass
 class Estimator:
+
+    model: typing.Any
+    """Underlying dynamical system model."""
+
+    Q_diag: bool = False
+    """Whether discrete-time process noise covariance Q is diagonal."""
+
+    R_diag: bool = True
+    """Whether measurement noise covariance R is diagonal."""
+
     @jdc.pytree_dataclass
     class Param:
         p: typing.Any
@@ -41,9 +53,6 @@ class Estimator:
         Sigma_cond = stats.LDLTMatrix.I(self.model.nx)
         S_cross = jnp.zeros((self.model.nx, self.model.nx))
         return self.Param(p=p, mu=mu, Sigma_cond=Sigma_cond, S_cross=S_cross)
-
-    def __init__(self, model):
-        self.model = model
 
     def res_cov(self, data, param):
         """Residuals covariance matrices."""
@@ -62,6 +71,10 @@ class Estimator:
         # Perform Cholesky decomposition and return
         Q_chol = jsp.linalg.cholesky(Q, lower=True)
         R_chol = jsp.linalg.cholesky(R, lower=True)
+
+        # Diagonalize covariances, if needed, and return
+        Q_chol = jnp.triu(Q_chol) if self.Q_diag else Q_chol
+        R_chol = jnp.triu(R_chol) if self.R_diag else R_chol
         return Q_chol, R_chol
 
     @staticmethod
@@ -231,7 +244,7 @@ class Estimator:
         x_next = mu_next + x_next_dev
 
         # Return the residuals
-        return x_next - x_curr - self.model.f(x_curr, u_curr, p)
+        return x_next - self.model.f(x_curr, u_curr, p)
 
     def xres(self, data: Data, param: Param):
         """Discrete-time state transition residuals for a full trajectory."""
