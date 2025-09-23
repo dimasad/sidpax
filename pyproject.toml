@@ -25,6 +25,7 @@ devextra = [
   "matplotlib",
   "optax",
 ]
+test = ["pytest>=8.0", "pytest-cov"]
 
 [project.urls]
 Repository = "https://github.com/dimasad/sidpax"
