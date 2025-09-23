@@ -2,8 +2,7 @@
 
 """ATTAS short-period motion."""
 
-import argparse
-import importlib
+import functools
 import pathlib
 import sys
 from dataclasses import dataclass, field
@@ -14,10 +13,10 @@ import jax.flatten_util
 import jax.numpy as jnp
 import jax_dataclasses as jdc
 import numpy as np
-from scipy import optimize, sparse
 import tyro
+from scipy import optimize, sparse
 
-from sidpax import common, sem, cli
+from sidpax import cli, modeling, sem
 
 
 @dataclass
@@ -66,7 +65,7 @@ class CLIArguments:
             raise ValueError("Maximum iterations must be positive.")
 
 
-class DimShortPeriod:
+class DimShortPeriod(modeling.StateSpaceBase):
     """Dimensional short-period motion model."""
 
     nx: int = 2
@@ -161,6 +160,7 @@ if __name__ == "__main__":
     hess_dense = jax.jit(jax.hessian(cost))
     hess_coo = jax.jit(lambda v: est.cost_hess(data[0], unpack(v)))
     hess = lambda v: sparse.coo_array(hess_coo(v)).tocsc()
+    hessp = jax.jit(lambda v, d: jax.jvp(grad, (v,), (jnp.astype(d, v.dtype),))[0])
 
     result = optimize.minimize(
         cost,
@@ -172,4 +172,10 @@ if __name__ == "__main__":
     )
 
     paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
-    yopt = est.model.h(paramopt.mu, data[0].u, paramopt.p)
+    popt = paramopt.p
+
+    ## Binding still does not work, as vectorization makes all arguments
+    ## positional-only.
+    #mdlopt = model.bind(param=paramopt.p)
+    #yopt = mdlopt.h(paramopt.mu, data[0].u)
+

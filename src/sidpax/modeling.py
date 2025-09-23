@@ -32,7 +32,7 @@ class PartialObject:
         attr = getattr(self._obj, name)
 
         # If `name` is a property, return it
-        if not callable(method):
+        if not callable(attr):
             return attr
         
         # Get method signature
@@ -40,7 +40,7 @@ class PartialObject:
         sig = inspect.signature(method)
 
         # Bind kwargs
-        for key, val in self._kwargs:
+        for key, val in self._kwargs.items():
             if key in sig.parameters:
                 method = functools.partial(method, **{key:val})
         return method
