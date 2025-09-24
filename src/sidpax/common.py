@@ -1,6 +1,7 @@
 """Common functions and utilities."""
 
 import dataclasses
+import functools
 import inspect
 import math
 from functools import partial
@@ -114,3 +115,19 @@ def pytree_ind(tree):
     tree_asint = jax.tree.map(lambda leaf: jnp.astype(leaf, int), tree)
     vector, unpack = jax.flatten_util.ravel_pytree(tree_asint)
     return unpack(jnp.arange(vector.size))
+
+
+def sparse_hessian(f, argnum):
+    @functools.wraps(f)
+    def wrapped_f(args, arginds):
+        argder = [a for i, a in enumerate(args) if i in argnum]
+        vec, unpack = jax.flatten_util.ravel_pytree(argder)
+
+        def fvec(vec):
+            arglist = list(args)
+            argder = unpack(vec)
+            for i, a in zip(argnum, argder):
+                arglist[i] = a
+            return f(*arglist)
+        
+        hval = jax.hessian(fvec)(vec).flatten()
