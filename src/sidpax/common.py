@@ -121,7 +121,9 @@ def sparse_hessian(f, argnum):
     @functools.wraps(f)
     def wrapped_f(args, arginds):
         argder = [a for i, a in enumerate(args) if i in argnum]
+
         vec, unpack = jax.flatten_util.ravel_pytree(argder)
+        vecind = jax.flatten_util.ravel_pytree(arginds)[0]
 
         def fvec(vec):
             arglist = list(args)
@@ -131,3 +133,7 @@ def sparse_hessian(f, argnum):
             return f(*arglist)
         
         hval = jax.hessian(fvec)(vec).flatten()
+        row = jnp.repeat(vecind, len(vec))
+        col = jnp.tile(vecind, len(vec))
+        return hval, (row, col)
+    return wrapped_f
