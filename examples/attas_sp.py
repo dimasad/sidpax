@@ -16,7 +16,7 @@ import numpy as np
 import tyro
 from scipy import optimize, sparse
 
-from sidpax import cli, modeling, sem
+from sidpax import cli, common, modeling, sem
 
 
 @dataclass
@@ -125,7 +125,7 @@ class DimShortPeriod(modeling.StateSpaceBase):
         """Discrete-time state transition function."""
         return x + self.fc(x, u, param) * self.dt  # Euler's method
 
-    @hedeut.jax_vectorize_method(signature="(x),(u)->(y)", excluded={2})
+    @common.jax_vectorize_method(signature="(x),(u)->(y)", excluded={2})
     def h(self, x, u, param):
         """Output function."""
         # Unpack arguments
@@ -176,6 +176,6 @@ if __name__ == "__main__":
 
     ## Binding still does not work, as vectorization makes all arguments
     ## positional-only.
-    #mdlopt = model.bind(param=paramopt.p)
-    #yopt = mdlopt.h(paramopt.mu, data[0].u)
+    mdlopt = model.bind(param=paramopt.p)
+    yopt = mdlopt.h(paramopt.mu, data[0].u)
 

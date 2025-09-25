@@ -137,3 +137,66 @@ def sparse_hessian(f, argnum):
         col = jnp.tile(vecind, len(vec))
         return hval, (row, col)
     return wrapped_f
+
+
+def allow_kwargs(f: Callable):
+    """
+    Decorator that allows a function that only accepts positional arguments
+    to also accept keyword arguments.
+    
+    This is useful for JAX-transformed functions like jax.diff, jax.hessian,
+    and jax.numpy.vectorize which preserve the function signature but only
+    accept positional arguments.
+    
+    Parameters
+    ----------
+    func : Callable 
+        A function that may only accept positional arguments.
+        
+    Returns
+    -------
+    A wrapped function that accepts both positional and keyword arguments.
+    """
+    # Get the signature of the original function
+    sig = inspect.signature(f)
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        """
+        Wrapper function that accepts both positional and keyword arguments.
+        """
+        try:
+            # Bind the provided arguments (*args, **kwargs) to the
+            # function's signature. This checks for correctness and
+            # creates an ordered list of arguments.
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+        except TypeError as e:
+            # Re-raise TypeError with a more informative message if binding fails
+            raise TypeError(
+                f"Argument mismatch for {f.__name__}: {e}"
+            ) from e
+
+        # Call the original function with the arguments as a positional tuple
+        return f(*bound_args.args)
+
+    return wrapper
+
+
+def jax_vectorize_method(f=None, **kwargs):
+    """Decorator for JAX vectorization of a instance method."""
+    if f is None:
+        return functools.partial(jax_vectorize_method, **kwargs)
+    
+    # Replace aliases
+    if 's' in kwargs:
+        kwargs['signature'] = kwargs['s']
+        del kwargs['s']
+    if 'e' in kwargs:
+        kwargs['excluded'] = kwargs['e']
+        del kwargs['e']
+    
+    @functools.wraps(f)
+    def getter(obj):
+        return allow_kwargs(jax.numpy.vectorize(f.__get__(obj), **kwargs))
+    return functools.cached_property(getter)
