@@ -8,11 +8,11 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import jax_dataclasses as jdc
 import numpy as np
-from jax.typing import Array, ArrayLike
+from jax.typing import ArrayLike
 
 
 @hedeut.jax_vectorize(signature="(n,m)->(p)")
-def vech(M: ArrayLike) -> Array:
+def vech(M: ArrayLike) -> jax.Array:
     """Pack the lower triangle of a matrix into a vector, columnwise.
 
     Follows the definition of Magnus and Neudecker (2019), Sec. 3.8,
@@ -22,7 +22,7 @@ def vech(M: ArrayLike) -> Array:
 
 
 @hedeut.jax_vectorize(signature="(m)->(n,n)")
-def matl(v: ArrayLike) -> Array:
+def matl(v: ArrayLike) -> jax.Array:
     """Unpack a vector into a square lower triangular matrix."""
     assert v.ndim == 1
     n = matl_size(len(v))
@@ -37,14 +37,14 @@ def matl_size(vech_len: int) -> int:
     return n
 
 
-def matl_diag(v: ArrayLike) -> Array:
+def matl_diag(v: ArrayLike) -> jax.Array:
     """Diagonal elements of the entries in the lower triangle a matrix."""
     n = matl_size(len(v))
     i, j = jnp.triu_indices(n)[::-1]
     return v[i == j]
 
 
-def tria_qr(*args) -> Array:
+def tria_qr(*args) -> jax.Array:
     """Array triangularization routine using QR decomposition."""
     M = jnp.concatenate(args, axis=-1)
     Q, R = jnp.linalg.qr(M.T)
@@ -52,7 +52,7 @@ def tria_qr(*args) -> Array:
     return R.T * sig
 
 
-def tria_chol(*args) -> Array:
+def tria_chol(*args) -> jax.Array:
     """Array triangularization routine using Cholesky decomposition."""
     M = jnp.concatenate(args, axis=-1)
     MMT = M @ M.T
@@ -92,10 +92,14 @@ class PositiveDefiniteMatrix(abc.ABC):
 
 @jdc.pytree_dataclass
 class ExpD(PositiveDefiniteMatrix):
-    """Positive-definite diagonal matrix represented as $e^D$."""
+    """
+    Positive-definite diagonal matrix represented as $e^D$.
+
+    Only the diagonal elements are stored.
+    """
 
     d: jax.Array
-    """Logarithm of the diagonal elements."""
+    """Diagonal elements of D."""
 
     @property
     def logdet(self):
