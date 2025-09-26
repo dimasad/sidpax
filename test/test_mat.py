@@ -1,12 +1,19 @@
 """Tests of `sidpax.mat`."""
 
 import inspect
+import os
+
+# Enable double precision for better numerical accuracy in tests
+os.environ['JAX_ENABLE_X64'] = '1'
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from scipy import sparse
+
+# Ensure JAX is configured for double precision
+jax.config.update("jax_enable_x64", True)
 
 from sidpax import mat
 
@@ -92,7 +99,7 @@ def test_identity_matrices(mat_class, n):
     identity_rep = mat_class.identity(n)
     identity_mat = identity_rep.mat
     expected = jnp.eye(n)
-    np.testing.assert_allclose(identity_mat, expected, rtol=1e-6)
+    np.testing.assert_allclose(identity_mat, expected, rtol=1e-14, atol=1e-16)
 
 
 @pytest.mark.parametrize("mat_class", [mat.ExpD, mat.ExpLExpLT, mat.LExpDLT])
@@ -105,7 +112,7 @@ def test_identity_matrices_vectorized(mat_class, vectorized_shape, n):
     identity_rep = mat_class.identity(shape)
     identity_mat = identity_rep.mat
     expected = jnp.broadcast_to(jnp.eye(n), shape)
-    np.testing.assert_allclose(identity_mat, expected, rtol=1e-6)
+    np.testing.assert_allclose(identity_mat, expected, rtol=1e-14, atol=1e-16)
 
 
 def test_exp_d_from_mat(pos_def_mat):
@@ -119,14 +126,14 @@ def test_exp_d_from_mat(pos_def_mat):
     
     # Check roundtrip
     recovered_mat = exp_d.mat
-    np.testing.assert_allclose(recovered_mat, diag_mat, rtol=1e-6)
+    np.testing.assert_allclose(recovered_mat, diag_mat, rtol=1e-12, atol=1e-14)
     
     # Test properties
     expected_logdet = jnp.linalg.slogdet(diag_mat)[1]
-    np.testing.assert_allclose(exp_d.logdet, expected_logdet, rtol=1e-6)
+    np.testing.assert_allclose(exp_d.logdet, expected_logdet, rtol=1e-12, atol=1e-14)
     
     expected_chol = jnp.linalg.cholesky(diag_mat)
-    np.testing.assert_allclose(exp_d.chol_low, expected_chol, rtol=1e-6)
+    np.testing.assert_allclose(exp_d.chol_low, expected_chol, rtol=1e-12, atol=1e-14)
 
 
 def test_exp_l_exp_lt_from_mat(pos_def_mat):
@@ -136,14 +143,14 @@ def test_exp_l_exp_lt_from_mat(pos_def_mat):
     
     # Check roundtrip
     recovered_mat = exp_l_exp_lt.mat
-    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-5)
+    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-10, atol=1e-12)
     
     # Test properties
     expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
-    np.testing.assert_allclose(exp_l_exp_lt.logdet, expected_logdet, rtol=1e-5)
+    np.testing.assert_allclose(exp_l_exp_lt.logdet, expected_logdet, rtol=1e-10, atol=1e-12)
     
     expected_chol = jnp.linalg.cholesky(pos_def_mat)
-    np.testing.assert_allclose(exp_l_exp_lt.chol_low, expected_chol, rtol=1e-5)
+    np.testing.assert_allclose(exp_l_exp_lt.chol_low, expected_chol, rtol=1e-10, atol=1e-12)
 
 
 def test_l_exp_d_lt_from_mat(pos_def_mat):
@@ -153,14 +160,14 @@ def test_l_exp_d_lt_from_mat(pos_def_mat):
     
     # Check roundtrip
     recovered_mat = l_exp_d_lt.mat
-    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-4)
+    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-8, atol=1e-10)
     
     # Test properties
     expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
-    np.testing.assert_allclose(l_exp_d_lt.logdet, expected_logdet, rtol=1e-4)
+    np.testing.assert_allclose(l_exp_d_lt.logdet, expected_logdet, rtol=1e-8, atol=1e-10)
     
     expected_chol = jnp.linalg.cholesky(pos_def_mat)
-    np.testing.assert_allclose(l_exp_d_lt.chol_low, expected_chol, rtol=1e-4)
+    np.testing.assert_allclose(l_exp_d_lt.chol_low, expected_chol, rtol=1e-8, atol=1e-10)
 
 
 def test_lower_unitriangular_identity(n):
@@ -183,4 +190,4 @@ def test_lower_unitriangular_from_mat():
     
     # Check roundtrip
     recovered_mat = lower_unit.mat
-    np.testing.assert_allclose(recovered_mat, test_mat, rtol=1e-6)
+    np.testing.assert_allclose(recovered_mat, test_mat, rtol=1e-12, atol=1e-14)
