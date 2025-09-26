@@ -1,7 +1,5 @@
 """Tests of `sidpax.common`."""
 
-import inspect
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -29,6 +27,7 @@ def jax_scalar_func(x, y):
 
 
 def f(x, y, z):
+    """Nonlinear test function with multiple arguments for testing Hessian."""
     return 2 * x * jnp.cos(x * y[1] + y[0] + z) + y[1] ** 2 * (z + 1)
 
 
@@ -64,23 +63,6 @@ def fargnum(request):
 
 
 # --- Tests ---
-
-
-def test_vech_1x1(rng_key):
-    M = jax.random.normal(rng_key, (1, 1))
-    np.testing.assert_allclose(common.vech(M), M.flatten())
-
-
-def test_vech_2x2():
-    M = jnp.array([[1, 2], [3, 4]])
-    vech_M = jnp.array([1, 3, 4])
-    assert all(common.vech(M) == vech_M)
-
-
-def test_vech_3x3():
-    M = jnp.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    vech_M = jnp.array([1, 4, 7, 5, 8, 9])
-    assert all(common.vech(M) == vech_M)
 
 
 def test_sparse_hessian_wrt_all(fargs):

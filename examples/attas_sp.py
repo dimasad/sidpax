@@ -174,8 +174,6 @@ if __name__ == "__main__":
     paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
     popt = paramopt.p
 
-    ## Binding still does not work, as vectorization makes all arguments
-    ## positional-only.
     mdlopt = model.bind(param=paramopt.p)
     yopt = mdlopt.h(paramopt.mu, data[0].u)
 
