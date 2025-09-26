@@ -94,7 +94,7 @@ class PositiveDefiniteMatrix(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def chol(self):
+    def chol_low(self):
         """Lower triangular Cholesky factor `L` of the matrix `P = L @ L.T`."""
 
     @property
@@ -120,7 +120,7 @@ class ExpD(PositiveDefiniteMatrix):
         return self.d.sum(axis=-1)
 
     @property
-    def chol(self):
+    def chol_low(self):
         """Lower triangular Cholesky factor `S` of the matrix `P = S @ S.T`."""
         sqrt_e_d = jnp.exp(0.5 * self.d)
         return make_diagonal(sqrt_e_d)
@@ -206,17 +206,17 @@ class ExpLExpLT(PositiveDefiniteMatrix):
         return 2 * matl_diag(self.vech_L).sum(-1)
 
     @property
-    def chol(self):
+    def chol_low(self):
         """Lower triangular Cholesky factor `L` of the matrix `P = L @ L.T`."""
         log_chol = matl(self.vech_L)
-        chol = jsp.linalg.expm(log_chol)
-        return chol
+        chol_low = jsp.linalg.expm(log_chol)
+        return chol_low
 
     @property
     def mat(self):
         """The underlying positive-definite matrix."""
-        chol_T = self.chol.swapaxes(-1, -2)
-        return self.chol @ chol_T
+        chol_T = self.chol_low.swapaxes(-1, -2)
+        return self.chol_low @ chol_T
 
     @classmethod
     def from_mat(cls, mat):
@@ -259,9 +259,9 @@ class LExpDLT(PositiveDefiniteMatrix):
         return self.eD.logdet
 
     @property
-    def chol(self):
+    def chol_low(self):
         """Lower triangular Cholesky factor `L` of the matrix `P = L @ L.T`."""
-        return self.L.mat @ self.eD.chol
+        return self.L.mat @ self.eD.chol_low
 
     @property
     def mat(self):
