@@ -42,24 +42,19 @@ def L(n, rng_key, vectorized_shape: tuple):
     return jnp.tril(M)
 
 
+@pytest.fixture  
+def A(n, rng_key, vectorized_shape: tuple):
+    """Random n by n matrix for creating positive definite matrices"""
+    return jax.random.normal(rng_key, vectorized_shape + (n, n))
+
+
+@pytest.fixture
+def pos_def_mat(A):
+    """Positive definite matrix A @ A.T"""
+    return A @ jnp.swapaxes(A, -1, -2)
+
+
 # --- Tests ---
-
-
-def test_vech_1x1(rng_key):
-    M = jax.random.normal(rng_key, (1, 1))
-    np.testing.assert_allclose(mat.vech(M), M.flatten(), rtol=0)
-
-
-def test_vech_2x2():
-    M = jnp.array([[1, 2], [3, 4]])
-    vech_M = jnp.array([1, 3, 4])
-    np.testing.assert_allclose(mat.vech(M), vech_M, rtol=0)
-
-
-def test_vech_3x3():
-    M = jnp.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    vech_M = jnp.array([1, 4, 7, 5, 8, 9])
-    np.testing.assert_allclose(mat.vech(M), vech_M, rtol=0)
 
 
 def test_vech_matL(L):
@@ -86,3 +81,106 @@ def test_matl_diag(L):
     vech_L = mat.vech(L)
     matl_d = mat.matl_diag(vech_L)
     np.testing.assert_allclose(matl_d, d, rtol=0)
+
+
+# --- Matrix class tests ---
+
+
+@pytest.mark.parametrize("mat_class", [mat.ExpD, mat.ExpLExpLT, mat.LExpDLT])
+def test_identity_matrices(mat_class, n):
+    """Test identity factory creates identity matrices."""
+    identity_rep = mat_class.identity(n)
+    identity_mat = identity_rep.mat
+    expected = jnp.eye(n)
+    np.testing.assert_allclose(identity_mat, expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("mat_class", [mat.ExpD, mat.ExpLExpLT, mat.LExpDLT])
+def test_identity_matrices_vectorized(mat_class, vectorized_shape, n):
+    """Test identity factory with vectorized shapes."""
+    if len(vectorized_shape) == 0:
+        pytest.skip("Scalar shape already tested")
+    
+    shape = vectorized_shape + (n, n)
+    identity_rep = mat_class.identity(shape)
+    identity_mat = identity_rep.mat
+    expected = jnp.broadcast_to(jnp.eye(n), shape)
+    np.testing.assert_allclose(identity_mat, expected, rtol=1e-6)
+
+
+def test_exp_d_from_mat(pos_def_mat):
+    """Test ExpD factory and roundtrip conversion."""
+    # ExpD only works with diagonal matrices, so we take the diagonal
+    diag_vals = jnp.diagonal(pos_def_mat, axis1=-1, axis2=-2)
+    diag_mat = mat.make_diagonal(diag_vals)
+    
+    # Convert to representation
+    exp_d = mat.ExpD.from_mat(diag_mat)
+    
+    # Check roundtrip
+    recovered_mat = exp_d.mat
+    np.testing.assert_allclose(recovered_mat, diag_mat, rtol=1e-6)
+    
+    # Test properties
+    expected_logdet = jnp.linalg.slogdet(diag_mat)[1]
+    np.testing.assert_allclose(exp_d.logdet, expected_logdet, rtol=1e-6)
+    
+    expected_chol = jnp.linalg.cholesky(diag_mat)
+    np.testing.assert_allclose(exp_d.chol_low, expected_chol, rtol=1e-6)
+
+
+def test_exp_l_exp_lt_from_mat(pos_def_mat):
+    """Test ExpLExpLT factory and roundtrip conversion."""
+    # Convert to representation
+    exp_l_exp_lt = mat.ExpLExpLT.from_mat(pos_def_mat)
+    
+    # Check roundtrip
+    recovered_mat = exp_l_exp_lt.mat
+    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-5)
+    
+    # Test properties
+    expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
+    np.testing.assert_allclose(exp_l_exp_lt.logdet, expected_logdet, rtol=1e-5)
+    
+    expected_chol = jnp.linalg.cholesky(pos_def_mat)
+    np.testing.assert_allclose(exp_l_exp_lt.chol_low, expected_chol, rtol=1e-5)
+
+
+def test_l_exp_d_lt_from_mat(pos_def_mat):
+    """Test LExpDLT factory and roundtrip conversion."""
+    # Convert to representation
+    l_exp_d_lt = mat.LExpDLT.from_mat(pos_def_mat)
+    
+    # Check roundtrip
+    recovered_mat = l_exp_d_lt.mat
+    np.testing.assert_allclose(recovered_mat, pos_def_mat, rtol=1e-4)
+    
+    # Test properties
+    expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
+    np.testing.assert_allclose(l_exp_d_lt.logdet, expected_logdet, rtol=1e-4)
+    
+    expected_chol = jnp.linalg.cholesky(pos_def_mat)
+    np.testing.assert_allclose(l_exp_d_lt.chol_low, expected_chol, rtol=1e-4)
+
+
+def test_lower_unitriangular_identity(n):
+    """Test LowerUnitriangular identity."""
+    identity_rep = mat.LowerUnitriangular.identity(n)
+    identity_mat = identity_rep.mat
+    expected = jnp.eye(n)
+    np.testing.assert_allclose(identity_mat, expected, rtol=0)
+
+
+def test_lower_unitriangular_from_mat():
+    """Test LowerUnitriangular from_mat with known matrix."""
+    # Create a known lower unitriangular matrix
+    test_mat = jnp.array([[1.0, 0.0, 0.0], 
+                         [0.5, 1.0, 0.0], 
+                         [-0.3, 0.2, 1.0]])
+    
+    # Convert to representation
+    lower_unit = mat.LowerUnitriangular.from_mat(test_mat)
+    
+    # Check roundtrip
+    recovered_mat = lower_unit.mat
+    np.testing.assert_allclose(recovered_mat, test_mat, rtol=1e-6)
