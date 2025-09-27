@@ -119,6 +119,31 @@ def allow_kwargs(f: Callable):
     return wrapper
 
 
+def defaultable(func, /, **defaults):
+    """
+    Like partial, but treat provided args/kwargs as *defaults*:
+    callers can override them via positional or keyword arguments.
+    """
+    sig = inspect.signature(func)
+    default_bind = sig.bind_partial(**defaults)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # what the caller actually provided
+        call_bind = sig.bind_partial(*args, **kwargs)
+
+        # fill in any missing parameters from our defaults
+        for name, val in default_bind.arguments.items():
+            if name not in call_bind.arguments:
+                call_bind.arguments[name] = val
+
+        # finalize & call
+        final_bind = sig.bind(**call_bind.arguments)
+        return func(*final_bind.args, **final_bind.kwargs)
+
+    return wrapper
+
+
 def jax_vectorize_method(f=None, **kwargs):
     """Decorator for JAX vectorization of a instance method."""
     if f is None:

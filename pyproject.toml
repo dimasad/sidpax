@@ -17,6 +17,8 @@ dependencies = [
   "numpy",
   "scipy",
   "hedeut",
+  "tyro",
+  "optax",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +26,6 @@ devextra = [
   "ipython",
   "ipdb",
   "matplotlib",
-  "optax",
 ]
 test = ["pytest>=8.0", "pytest-cov"]
 

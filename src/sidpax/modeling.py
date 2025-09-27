@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from sidpax import common
+
 
 class StateSpaceBase:
     """Base class for state-space model."""
@@ -34,13 +36,14 @@ class PartialObject:
         # If `name` is a property, return it
         if not callable(attr):
             return attr
-        
+
         # Get method signature
         method = attr
         sig = inspect.signature(method)
 
         # Bind kwargs
-        for key, val in self._kwargs.items():
-            if key in sig.parameters:
-                method = functools.partial(method, **{key:val})
+        defaults = {
+            k: v for k, v in self._kwargs.items() if k in sig.parameters
+        }
+        method = common.defaultable(method, **defaults)
         return method

@@ -10,7 +10,7 @@ import jax.scipy as jsp
 import jax_dataclasses as jdc
 from jax.flatten_util import ravel_pytree
 
-from . import common, stats
+from . import common, mat, stats
 
 
 @jdc.pytree_dataclass
@@ -192,7 +192,7 @@ class Estimator:
         """Measurement output residuals for a single time sample."""
         # Get the Cholesky factor of the marginal state covariance
         S_cond = param.Sigma_cond.chol
-        S_marg = common.tria_qr(S_cond, param.S_cross)
+        S_marg = mat.tria_qr(S_cond, param.S_cross)
 
         # Get the standard normal sigma points and weights.
         # Note that weights will be discarded, as they are all equal.
@@ -226,7 +226,7 @@ class Estimator:
         """Discrete-time state transition residuals for a single sample pair."""
         # Get the Cholesky factor of the marginal state covariance
         S_cond = Sigma_cond.chol
-        S_marg = common.tria_qr(S_cond, S_cross)
+        S_marg = mat.tria_qr(S_cond, S_cross)
 
         # Get the standard normal sigma points and weights.
         # Note that weights will be discarded, as they are all equal.

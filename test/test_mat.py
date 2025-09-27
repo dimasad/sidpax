@@ -94,20 +94,8 @@ def test_matl_diag(L):
 
 
 @pytest.mark.parametrize("mat_class", [mat.ExpD, mat.ExpLExpLT, mat.LExpDLT])
-def test_identity_matrices(mat_class, n):
-    """Test identity factory creates identity matrices."""
-    identity_rep = mat_class.identity(n)
-    identity_mat = identity_rep.mat
-    expected = jnp.eye(n)
-    np.testing.assert_allclose(identity_mat, expected, rtol=1e-14, atol=1e-16)
-
-
-@pytest.mark.parametrize("mat_class", [mat.ExpD, mat.ExpLExpLT, mat.LExpDLT])
 def test_identity_matrices_vectorized(mat_class, vectorized_shape, n):
-    """Test identity factory with vectorized shapes."""
-    if len(vectorized_shape) == 0:
-        pytest.skip("Scalar shape already tested")
-    
+    """Test identity factory with vectorized shapes."""    
     shape = vectorized_shape + (n, n)
     identity_rep = mat_class.identity(shape)
     identity_mat = identity_rep.mat

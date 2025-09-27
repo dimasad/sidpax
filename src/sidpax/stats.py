@@ -14,7 +14,7 @@ import numpy as np
 from jax.flatten_util import ravel_pytree
 from scipy import special
 
-from . import common
+from . import mat
 
 
 class PositiveDefiniteMatrix(abc.ABC):
@@ -69,12 +69,12 @@ class LogCholMatrix(PositiveDefiniteMatrix):
     @property
     def logdet(self):
         """Logarithm of the matrix determinant."""
-        return 2 * common.matl_diag(self.vech_log_chol).sum()
+        return 2 * mat.matl_diag(self.vech_log_chol).sum()
 
     @property
     def chol(self):
         """Lower triangular Cholesky factor `L` of the matrix `P = L @ L.T`."""
-        log_chol = common.matl(self.vech_log_chol)
+        log_chol = mat.matl(self.vech_log_chol)
         chol = jsp.linalg.expm(log_chol)
         return chol
 
@@ -102,7 +102,7 @@ class LDLTMatrix(PositiveDefiniteMatrix):
     @classmethod
     def I(cls, n: int):
         """Make identity matrix."""
-        vech_L = common.vech(jnp.zeros((n - 1, n - 1)))
+        vech_L = mat.vech(jnp.zeros((n - 1, n - 1)))
         log_d = jnp.zeros(n)
         return cls(vech_L=vech_L, log_d=log_d)
 
@@ -116,9 +116,10 @@ class LDLTMatrix(PositiveDefiniteMatrix):
         """The underlying unitriangular matrix `L`."""
         n = self.log_d.shape[-1]
         base_shape = jnp.broadcast_shapes(
-            self.log_d.shape[:-1], self.vech_L.shape[:-1])
+            self.log_d.shape[:-1], self.vech_L.shape[:-1]
+        )
         L = jnp.zeros(base_shape + (n, n)).at[...].set(jnp.identity(n))
-        return L.at[..., 1:, :-1].add(common.matl(self.vech_L))
+        return L.at[..., 1:, :-1].add(mat.matl(self.vech_L))
 
     @property
     def chol(self):
