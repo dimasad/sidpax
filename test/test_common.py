@@ -31,21 +31,6 @@ def f(x, y, z):
     return 2 * x * jnp.cos(x * y[1] + y[0] + z) + y[1] ** 2 * (z + 1)
 
 
-# --- Fixtures ---
-
-
-@pytest.fixture(params=range(2))
-def rng_seed(request):
-    """Pseudo-random number generator seed."""
-    return request.param
-
-
-@pytest.fixture
-def rng_key(rng_seed):
-    """Jax pseudo-random number generator key"""
-    return jax.random.key(rng_seed)
-
-
 @pytest.fixture
 def fargs(rng_key):
     """Input argument of f function."""

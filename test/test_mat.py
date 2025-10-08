@@ -48,15 +48,9 @@ def L(n, rng_key, vectorized_shape: tuple):
 
 
 @pytest.fixture
-def A(n, rng_key, vectorized_shape: tuple):
-    """Random n by n matrix for creating positive definite matrices"""
-    return jax.random.normal(rng_key, vectorized_shape + (n, n))
-
-
-@pytest.fixture
-def pos_def_mat(A):
+def rand_pos_def_mat(rand_A):
     """Positive definite matrix A @ A.T"""
-    return A @ jnp.swapaxes(A, -1, -2)
+    return rand_A @ jnp.swapaxes(rand_A, -1, -2)
 
 
 # --- Tests ---
@@ -106,10 +100,10 @@ def test_identity_matrices_vectorized(mat_class, vectorized_shape, n):
     np.testing.assert_allclose(identity_mat, expected, rtol=1e-14, atol=1e-16)
 
 
-def test_exp_d_from_mat(pos_def_mat):
+def test_exp_d_from_mat(rand_pos_def_mat):
     """Test ExpD factory and roundtrip conversion."""
     # ExpD only works with diagonal matrices, so we take the diagonal
-    diag_vals = jnp.diagonal(pos_def_mat, axis1=-1, axis2=-2)
+    diag_vals = jnp.diagonal(rand_pos_def_mat, axis1=-1, axis2=-2)
     diag_mat = mat.make_diagonal(diag_vals)
 
     # Convert to representation
@@ -131,47 +125,47 @@ def test_exp_d_from_mat(pos_def_mat):
     )
 
 
-def test_exp_l_exp_lt_from_mat(pos_def_mat):
+def test_exp_l_exp_lt_from_mat(rand_pos_def_mat):
     """Test ExpLExpLT factory and roundtrip conversion."""
     # Convert to representation
-    exp_l_exp_lt = mat.ExpLExpLT.from_mat(pos_def_mat)
+    exp_l_exp_lt = mat.ExpLExpLT.from_mat(rand_pos_def_mat)
 
     # Check roundtrip
     recovered_mat = exp_l_exp_lt.mat
     np.testing.assert_allclose(
-        recovered_mat, pos_def_mat, rtol=1e-10, atol=1e-12
+        recovered_mat, rand_pos_def_mat, rtol=1e-10, atol=1e-12
     )
 
     # Test properties
-    expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
+    expected_logdet = jnp.linalg.slogdet(rand_pos_def_mat)[1]
     np.testing.assert_allclose(
         exp_l_exp_lt.logdet, expected_logdet, rtol=1e-10, atol=1e-12
     )
 
-    expected_chol = jnp.linalg.cholesky(pos_def_mat)
+    expected_chol = jnp.linalg.cholesky(rand_pos_def_mat)
     np.testing.assert_allclose(
         exp_l_exp_lt.chol_low, expected_chol, rtol=1e-10, atol=1e-12
     )
 
 
-def test_l_exp_d_lt_from_mat(pos_def_mat):
+def test_l_exp_d_lt_from_mat(rand_pos_def_mat):
     """Test LExpDLT factory and roundtrip conversion."""
     # Convert to representation
-    l_exp_d_lt = mat.LExpDLT.from_mat(pos_def_mat)
+    l_exp_d_lt = mat.LExpDLT.from_mat(rand_pos_def_mat)
 
     # Check roundtrip
     recovered_mat = l_exp_d_lt.mat
     np.testing.assert_allclose(
-        recovered_mat, pos_def_mat, rtol=1e-8, atol=1e-10
+        recovered_mat, rand_pos_def_mat, rtol=1e-8, atol=1e-10
     )
 
     # Test properties
-    expected_logdet = jnp.linalg.slogdet(pos_def_mat)[1]
+    expected_logdet = jnp.linalg.slogdet(rand_pos_def_mat)[1]
     np.testing.assert_allclose(
         l_exp_d_lt.logdet, expected_logdet, rtol=1e-8, atol=1e-10
     )
 
-    expected_chol = jnp.linalg.cholesky(pos_def_mat)
+    expected_chol = jnp.linalg.cholesky(rand_pos_def_mat)
     np.testing.assert_allclose(
         l_exp_d_lt.chol_low, expected_chol, rtol=1e-8, atol=1e-10
     )

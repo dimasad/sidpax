@@ -43,7 +43,7 @@ class Estimator:
     class Param:
         p: typing.Any
         mu: jax.Array
-        Sigma_cond: stats.PositiveDefiniteMatrix
+        Sigma_cond: mat.PositiveDefiniteMatrix
         S_cross: jax.Array
 
     def param(self, data, rng=None):
