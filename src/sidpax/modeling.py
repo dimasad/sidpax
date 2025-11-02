@@ -4,7 +4,6 @@ import collections.abc
 import copy
 import functools
 import inspect
-import dataclasses
 from typing import Any
 
 import jax
@@ -25,8 +24,6 @@ class StateSpaceBase:
             # Get the mapping of items to bind
             if isinstance(arg, collections.abc.Mapping):
                 d = arg
-            elif dataclasses.is_dataclass(arg):
-                d = dataclasses.asdict(arg)
             else:
                 d = arg.__dict__
 
