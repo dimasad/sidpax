@@ -1,8 +1,10 @@
 """Classes for representing dynamic system models."""
 
-from dataclasses import dataclass
+import collections.abc
+import copy
 import functools
 import inspect
+import dataclasses
 from typing import Any
 
 import jax
@@ -15,35 +17,21 @@ from sidpax import common
 class StateSpaceBase:
     """Base class for state-space model."""
 
-    def bind(self, **kwargs):
-        return PartialObject(self, **kwargs)
+    def bind(self, *args):
+        # Make a deep copy of the object
+        bound = copy.deepcopy(self)
 
+        for arg in args:
+            # Get the mapping of items to bind
+            if isinstance(arg, collections.abc.Mapping):
+                d = arg
+            elif dataclasses.is_dataclass(arg):
+                d = dataclasses.asdict(arg)
+            else:
+                d = arg.__dict__
 
-class PartialObject:
-    """Object whose methods are bound to specific values."""
-
-    def __init__(self, obj, **kwargs):
-        self._obj = obj
-        """Underlying object."""
-
-        self._kwargs = kwargs
-        """Dictionary of values bound to argument names."""
-
-    def __getattr__(self, name):
-        # Get underlying attribute
-        attr = getattr(self._obj, name)
-
-        # If `name` is a property, return it
-        if not callable(attr):
-            return attr
-
-        # Get method signature
-        method = attr
-        sig = inspect.signature(method)
-
-        # Bind kwargs
-        defaults = {
-            k: v for k, v in self._kwargs.items() if k in sig.parameters
-        }
-        method = common.defaultable(method, **defaults)
-        return method
+            # Bind each item in the mapping
+            for k, v in d.items():
+                setattr(bound, k, v)
+        
+        return bound

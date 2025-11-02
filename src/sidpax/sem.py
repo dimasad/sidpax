@@ -205,7 +205,7 @@ class Estimator:
         xsamp = param.mu + xdev
 
         # Return the residuals
-        return datum.y - self.model.h(xsamp, datum.u, param.p)
+        return datum.y - self.model.bind(param.p).h(xsamp, datum.u)
 
     def yres(self, data: Data, param: Param):
         """Measurement output residuals for a full trajectory."""
@@ -244,7 +244,8 @@ class Estimator:
         x_next = mu_next + x_next_dev
 
         # Return the residuals
-        return x_next - self.model.f(x_curr, u_curr, p)
+
+        return x_next - self.model.bind(p).f(x_curr, u_curr)
 
     def xres(self, data: Data, param: Param):
         """Discrete-time state transition residuals for a full trajectory."""

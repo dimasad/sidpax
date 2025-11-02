@@ -96,22 +96,22 @@ class DimShortPeriod(modeling.StateSpaceBase):
         """Initialize the parameter structure."""
         return cls.Param()
 
-    @hedeut.jax_vectorize_method(signature="(x),(u)->(x)", excluded={2})
-    def fc(self, x, u, param):
+    @hedeut.jax_vectorize_method(signature="(x),(u)->(x)")
+    def fc(self, x, u):
         """Drift function."""
         # Unpack arguments
         alpha, q = x
         (dele,) = u
 
         # Unpack model parameters
-        Z0 = param.Z0
-        Za = param.Za
-        Zq = param.Zq
-        Zde = param.Zde
-        M0 = param.M0
-        Ma = param.Ma
-        Mq = param.Mq
-        Mde = param.Mde
+        Z0 = self.Z0
+        Za = self.Za
+        Zq = self.Zq
+        Zde = self.Zde
+        M0 = self.M0
+        Ma = self.Ma
+        Mq = self.Mq
+        Mde = self.Mde
 
         # Compute state derivatives
         alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
@@ -121,12 +121,12 @@ class DimShortPeriod(modeling.StateSpaceBase):
         xdot = jnp.array([alphadot, qdot])
         return xdot
 
-    def f(self, x, u, param):
+    def f(self, x, u):
         """Discrete-time state transition function."""
-        return x + self.fc(x, u, param) * self.dt  # Euler's method
+        return x + self.fc(x, u) * self.dt  # Euler's method
 
-    @common.jax_vectorize_method(signature="(x),(u)->(y)", excluded={2})
-    def h(self, x, u, param):
+    @common.jax_vectorize_method(signature="(x),(u)->(y)")
+    def h(self, x, u):
         """Output function."""
         # Unpack arguments
         return x
@@ -174,6 +174,6 @@ if __name__ == "__main__":
     paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
     popt = paramopt.p
 
-    mdlopt = model.bind(param=paramopt.p)
+    mdlopt = model.bind(paramopt.p)
     yopt = mdlopt.h(paramopt.mu, data[0].u)
 
