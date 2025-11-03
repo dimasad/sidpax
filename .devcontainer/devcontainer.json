@@ -1,9 +1,12 @@
 {
     "name": "Sidpax Dev Container",
     "image": "mcr.microsoft.com/devcontainers/python:3.14",
-    "postCreateCommand": "pip install -e .[devextra,test]",
+    "postCreateCommand": "./.devcontainer/post-create.sh",
     "customizations": {
         "vscode": {
+            "settings": {
+                "python.formatting.provider": "black"
+            },
             "extensions": [
                 "ms-python.python",
                 "ms-python.vscode-pylance",
