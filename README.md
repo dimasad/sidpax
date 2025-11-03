@@ -1,7 +1,7 @@
+[![Testing](https://github.com/dimasad/sidpax/actions/workflows/tests.yml/badge.svg)](https://github.com/dimasad/sidpax/actions/workflows/tests.yml)
+
 # sidpax
 System Identification Programs in JAX
-
-[![Testing](https://github.com/dimasad/sidpax/actions/workflows/tests.yml/badge.svg)](https://github.com/dimasad/sidpax/actions/workflows/tests.yml)
 
 The main goal of this project is implementing variational smoother-error method 
 for system identification, using JAX. This is described in the paper
