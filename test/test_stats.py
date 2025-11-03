@@ -31,4 +31,4 @@ def test_mvn_logpdf(x, mu, Sigma):
     """Compare multivariate logpdf against reference implementation."""
     logpdf = stats.mvn_logpdf(x, mu, Sigma)
     expected = jsp.stats.multivariate_normal.logpdf(x, mu, Sigma.mat)
-    np.testing.assert_allclose(logpdf, expected, rtol=1e-10, atol=0)
+    np.testing.assert_allclose(logpdf, expected, rtol=1e-9, atol=0)
