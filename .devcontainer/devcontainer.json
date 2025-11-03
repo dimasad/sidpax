@@ -2,6 +2,7 @@
     "name": "Sidpax Dev Container",
     "image": "mcr.microsoft.com/devcontainers/python:3.14",
     "postCreateCommand": "./.devcontainer/post-create.sh",
+    "runArgs": ["--gpus", "all"],
     "customizations": {
         "vscode": {
             "settings": {
