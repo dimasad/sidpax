@@ -1,7 +1,7 @@
 {
-    "name": "Sidpax Dev Container",
+    "name": "Sidpax Dev Container (with CUDA 12)",
     "image": "mcr.microsoft.com/devcontainers/python:3.14",
-    "postCreateCommand": "./.devcontainer/post-create.sh",
+    "postCreateCommand": "./.devcontainer/cuda12/post-create.sh",
     "runArgs": ["--gpus", "all"],
     "customizations": {
         "vscode": {
