@@ -16,7 +16,7 @@ import numpy as np
 import tyro
 from scipy import optimize, sparse
 
-from sidpax import cli, common, modeling, sem
+from sidpax import cli, common, mat, modeling, sem, stats
 
 
 @dataclass
@@ -82,6 +82,8 @@ class DimShortPeriod(modeling.StateSpaceBase):
 
     @jdc.pytree_dataclass
     class Param:
+        Q: mat.PositiveDefiniteMatrix
+        R: mat.PositiveDefiniteMatrix
         Z0: float = 0.0
         Za: float = 0.0
         Zq: float = 0.0
@@ -94,7 +96,9 @@ class DimShortPeriod(modeling.StateSpaceBase):
     @classmethod
     def param(cls, data=None, rng=None):
         """Initialize the parameter structure."""
-        return cls.Param()
+        Q = mat.mat.LExpDLT.identity(cls.nx)
+        R = mat.mat.LExpDLT.identity(cls.ny)
+        return cls.Param(Q=Q, R=R)
 
     @hedeut.jax_vectorize_method(signature="(x),(u)->(x)")
     def fc(self, x, u):
@@ -125,11 +129,20 @@ class DimShortPeriod(modeling.StateSpaceBase):
         """Discrete-time state transition function."""
         return x + self.fc(x, u) * self.dt  # Euler's method
 
+    @common.jax_vectorize_method(signature="(x),(x),(u)->()")
+    def trans_logpdf(self, xnext, x, u):
+        """Log-density of a state transition, log p(x_{k+1} | x_k, u_k)."""
+        return stats.mvn_logpdf(xnext, self.f(x, u), self.Q)
+
     @common.jax_vectorize_method(signature="(x),(u)->(y)")
     def h(self, x, u):
         """Output function."""
-        # Unpack arguments
         return x
+
+    @common.jax_vectorize_method(signature="(y),(x),(u)->()")
+    def meas_logpdf(self, y, x, u):
+        """Log-density of a measurement, log p(y_k | x_k, u_k)."""
+        return stats.mvn_logpdf(y, self.h(x, u), self.R)
 
 
 if __name__ == "__main__":
@@ -159,8 +172,9 @@ if __name__ == "__main__":
     grad = jax.jit(jax.grad(cost))
     hess_dense = jax.jit(jax.hessian(cost))
     hess_coo = jax.jit(lambda v: est.cost_hess(data[0], unpack(v)))
-    hess = lambda v: sparse.coo_array(hess_coo(v)).tocsc()
-    hessp = jax.jit(lambda v, d: jax.jvp(grad, (v,), (jnp.astype(d, v.dtype),))[0])
+    def hess(v): return sparse.coo_array(hess_coo(v)).tocsc()
+    hessp = jax.jit(lambda v, d: jax.jvp(
+        grad, (v,), (jnp.astype(d, v.dtype),))[0])
 
     result = optimize.minimize(
         cost,
@@ -176,4 +190,3 @@ if __name__ == "__main__":
 
     mdlopt = model.bind(paramopt.p)
     yopt = mdlopt.h(paramopt.mu, data[0].u)
-

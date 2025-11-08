@@ -224,4 +224,4 @@ def jax_vectorize_method(f=None, **kwargs):
     def getter(obj):
         return allow_kwargs(jax.numpy.vectorize(f.__get__(obj), **kwargs))
 
-    return functools.cached_property(getter)
+    return getter

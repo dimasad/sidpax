@@ -27,8 +27,9 @@ class StateSpaceBase:
             else:
                 d = arg.__dict__
 
-            # Bind each item in the mapping
+            # Bind each item in the mapping that is not an attribute yet
             for k, v in d.items():
-                setattr(bound, k, v)
+                if not hasattr(bound, k):
+                    setattr(bound, k, v)
         
         return bound
