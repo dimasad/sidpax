@@ -55,7 +55,54 @@ def pytree_ind(tree):
 
 
 def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
-    """Hessian of the sum of a vectorized scalar `f` in sparse COO format."""
+    """
+    Hessian of the sum of a vectorized scalar function `f` in sparse COO format.
+
+    This function returns a callable that computes the Hessian matrix of `f` 
+    with respect to the specified argument indices (`argnum`), and returns the
+    result in sparse COO format suitable for efficient storage and manipulation.
+
+    The returned function is vectorized using JAX's `vmap`, allowing batch 
+    computation over multiple inputs.
+
+    Parameters
+    ----------
+    f : Callable
+        Scalar function to differentiate. Should accept positional arguments.
+    argnum : Sequence[int]
+        Indices of arguments with respect to which the Hessian is computed.
+    vmap_in_axes : int or tuple, optional
+        Axes specification for vectorization over inputs (default: 0).
+    vmap_out_axes : int or tuple, optional
+        Axes specification for vectorization over outputs (default: 0).
+
+    Returns
+    -------
+    Callable
+        A function that computes the sparse Hessian in COO format: 
+        (values, (row_indices, col_indices)).
+
+    Examples
+    --------
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import numpy as np
+    >>> from sidpax.common import sparse_hessian, pytree_ind
+    >>> import scipy.sparse
+    >>> def f(x, y):
+    ...     return x**2 + y**3
+    >>> x = jnp.array([1.0, 2.0])
+    >>> y = jnp.array([3.0, 4.0])
+    >>> args = (x, y)
+    >>> arginds = pytree_ind(args)
+    >>> hess_fn = sparse_hessian(f, argnum=(0, 1))
+    >>> values, (rows, cols) = hess_fn(args, arginds)
+    >>> sparse_hess = scipy.sparse.coo_matrix((values, (rows, cols)))
+    >>> argvec, unpack = jax.flatten_util.ravel_pytree(args)
+    >>> dense_hess = jax.hessian(lambda argvec: f(*unpack(argvec)).sum())(argvec)
+    >>> np.allclose(sparse_hess.todense(), np.array(dense_hess))
+    True
+    """
     @functools.wraps(f)
     def wrapped_f(args, arginds):
         argder = [a for i, a in enumerate(args) if i in argnum]
