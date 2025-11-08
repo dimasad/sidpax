@@ -54,7 +54,8 @@ def pytree_ind(tree):
     return unpack(jnp.arange(vector.size))
 
 
-def sparse_hessian(f, argnum, vmap_in_axes=None):
+def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
+    """Hessian of the sum of a vectorized scalar `f` in sparse COO format."""
     @functools.wraps(f)
     def wrapped_f(args, arginds):
         argder = [a for i, a in enumerate(args) if i in argnum]
@@ -73,16 +74,12 @@ def sparse_hessian(f, argnum, vmap_in_axes=None):
         row = jnp.repeat(vecind, len(vec))
         col = jnp.tile(vecind, len(vec))
         return hval, (row, col)
-    
-    # Return if no vectorization is needed
-    if vmap_in_axes is None:
-        return wrapped_f
 
     # Create new wrapper with vectorization and return
     @functools.wraps(wrapped_f)
     def vmapped(args, arginds):
-        hval, (row, col) = jax.vmap(wrapped_f, vmap_in_axes)(args, arginds)
-        return hval.flatten(), (row.flatten(), col.flatten())
+        coo = jax.vmap(wrapped_f, vmap_in_axes, vmap_out_axes)(args, arginds)
+        return coo[0].flatten(), (coo[1][0].flatten(), coo[1][1].flatten())
     return vmapped
 
 
