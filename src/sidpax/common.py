@@ -54,7 +54,7 @@ def pytree_ind(tree):
     return unpack(jnp.arange(vector.size))
 
 
-def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
+def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     """
     Hessian of the sum of a vectorized scalar function `f` in sparse COO format.
 
@@ -71,10 +71,14 @@ def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
         Scalar function to differentiate. Should accept positional arguments.
     argnum : Sequence[int]
         Indices of arguments with respect to which the Hessian is computed.
-    vmap_in_axes : int or tuple, optional
-        Axes specification for vectorization over inputs (default: 0).
+    vmap_in_axes : None, int or tuple, optional
+        Axes specification for vectorization over inputs. Passed as the 
+        `in_axes` argument to JAX's `vmap`. If `None`, the default, no
+        vectorization is applied.
     vmap_out_axes : int or tuple, optional
-        Axes specification for vectorization over outputs (default: 0).
+        Axes specification for vectorization over outputs. Passed as the 
+        `out_axes` argument to JAX's `vmap`. This argument is ignored if
+        `vmap_in_axes` is `None` (default: 0).
 
     Returns
     -------
@@ -95,7 +99,7 @@ def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
     >>> y = jnp.array([3.0, 4.0])
     >>> args = (x, y)
     >>> arginds = pytree_ind(args)
-    >>> hess_fn = sparse_hessian(f, argnum=(0, 1))
+    >>> hess_fn = sparse_hessian(f, argnum=(0, 1), vmap_in_axes=0)
     >>> values, (rows, cols) = hess_fn(args, arginds)
     >>> sparse_hess = scipy.sparse.coo_matrix((values, (rows, cols)))
     >>> argvec, unpack = jax.flatten_util.ravel_pytree(args)
@@ -122,6 +126,10 @@ def sparse_hessian(f, argnum, vmap_in_axes=0, vmap_out_axes=0):
         col = jnp.tile(vecind, len(vec))
         return hval, (row, col)
 
+    # Return if no vectorization is needed
+    if vmap_in_axes is None:
+        return wrapped_f
+    
     # Create new wrapper with vectorization and return
     @functools.wraps(wrapped_f)
     def vmapped(args, arginds):

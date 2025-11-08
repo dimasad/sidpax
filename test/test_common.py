@@ -40,33 +40,34 @@ def fargnum(request):
     return request.param
 
 
-@pytest.fixture(params=[1, 3])
-def fvmap_len(request):
+@pytest.fixture(params=[(), (3,)])
+def fvmap_shape(request):
     """Length of vectorization of the arguments of `f`"""
     return request.param
 
 
 @pytest.fixture
-def fargs(rng_key, fvmap_len):
+def fargs(rng_key, fvmap_shape):
     """Input argument of f function."""
     keys = jax.random.split(rng_key, 3)
-    x = jax.random.normal(keys[0], shape=(fvmap_len,))
-    y = jax.random.normal(keys[1], shape=(fvmap_len, 2))
-    z = jax.random.normal(keys[2], shape=(fvmap_len,))
+    x = jax.random.normal(keys[0], shape=fvmap_shape)
+    y = jax.random.normal(keys[1], shape=fvmap_shape+(2,))
+    z = jax.random.normal(keys[2], shape=fvmap_shape)
     return x, y, z
 
 
 # --- Tests ---
 
 
-def test_sparse_hessian_wrt_all(fargs):
+def test_sparse_hessian_wrt_all(fargs, fvmap_shape):
     """Test sparse Hessian computation wrt all arguments."""
     # Get problem variables
     arginds = common.pytree_ind(fargs)  # Argument indices for sparse Hessian
     argnum = 0, 1, 2  # Arguments wrt we are differentiating
 
     # Compute sparse Hessian and convert to COO format
-    sparse_hess_fun = common.sparse_hessian(f, argnum)
+    vmap_in_axes = 0 if fvmap_shape else None
+    sparse_hess_fun = common.sparse_hessian(f, argnum, vmap_in_axes)
     sparse_hess = sparse.coo_array(sparse_hess_fun(fargs, arginds))
 
     # Compute the dense Hessian by ravelling (flattening) the arguments
@@ -77,14 +78,15 @@ def test_sparse_hessian_wrt_all(fargs):
     np.testing.assert_allclose(sparse_hess.todense(), dense_hess)
 
 
-def test_sparse_hessian_wrt_pair(fargs, fargnum):
+def test_sparse_hessian_wrt_pair(fargs, fargnum, fvmap_shape):
     """Test sparse Hessian computation wrt a pair of arguments."""
     # Get problem variables
     argder = [a for i, a in enumerate(fargs) if i in fargnum]
     arginds = common.pytree_ind(argder)
 
     # Compute sparse Hessian and convert to COO format
-    sparse_hess_fun = common.sparse_hessian(f, fargnum)
+    vmap_in_axes = 0 if fvmap_shape else None
+    sparse_hess_fun = common.sparse_hessian(f, fargnum, vmap_in_axes)
     sparse_hess = sparse.coo_array(sparse_hess_fun(fargs, arginds))
 
     # Compute the dense Hessian by ravelling (flattening) the arguments
