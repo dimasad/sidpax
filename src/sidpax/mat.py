@@ -17,7 +17,7 @@ def vech(M: ArrayLike) -> jax.Array:
 
     Follows the definition of Magnus and Neudecker (2019), Sec. 3.8,
     DOI: 10.1002/9781119541219
-    
+
     Examples
     --------
     >>> import jax.numpy as jnp
@@ -26,12 +26,12 @@ def vech(M: ArrayLike) -> jax.Array:
     >>> result = vech(M)
     >>> expected = jnp.array([1, 3, 4])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> M = jnp.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     >>> result = vech(M)
     >>> expected = jnp.array([1, 4, 7, 5, 8, 9])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> M = jnp.array([[1]])
     >>> result = vech(M)
     >>> expected = jnp.array([1])
@@ -43,7 +43,7 @@ def vech(M: ArrayLike) -> jax.Array:
 @hedeut.jax_vectorize(signature="(m)->(n,n)")
 def matl(v: ArrayLike) -> jax.Array:
     """Unpack a vector into a square lower triangular matrix.
-    
+
     Examples
     --------
     >>> import jax.numpy as jnp
@@ -52,12 +52,12 @@ def matl(v: ArrayLike) -> jax.Array:
     >>> result = matl(v)
     >>> expected = jnp.array([[1, 0], [3, 4]])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> v = jnp.array([1, 4, 7, 5, 8, 9])
     >>> result = matl(v)
     >>> expected = jnp.array([[1, 0, 0], [4, 5, 0], [7, 8, 9]])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> v = jnp.array([1])
     >>> result = matl(v)
     >>> expected = jnp.array([[1]])
@@ -71,7 +71,7 @@ def matl(v: ArrayLike) -> jax.Array:
 
 def matl_size(vech_len: int) -> int:
     """Number of rows a square matrix `M` given the length of `vech(M)`.
-    
+
     Examples
     --------
     >>> matl_size(1)
@@ -90,7 +90,7 @@ def matl_size(vech_len: int) -> int:
 
 def matl_diag(v: ArrayLike) -> jax.Array:
     """Diagonal elements of the entries in the lower triangle a matrix.
-    
+
     Examples
     --------
     >>> import jax.numpy as jnp
@@ -99,12 +99,12 @@ def matl_diag(v: ArrayLike) -> jax.Array:
     >>> result = matl_diag(v)
     >>> expected = jnp.array([1, 4])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> v = jnp.array([1, 4, 7, 5, 8, 9])  # vech of [[1, 0, 0], [4, 5, 0], [7, 8, 9]]
     >>> result = matl_diag(v)
     >>> expected = jnp.array([1, 5, 9])
     >>> np.testing.assert_allclose(result, expected, rtol=0)
-    
+
     >>> v = jnp.array([1])  # vech of [[1]]
     >>> result = matl_diag(v)
     >>> expected = jnp.array([1])
@@ -172,6 +172,16 @@ class PositiveDefiniteMatrix(abc.ABC):
     @abc.abstractmethod
     def mat(self):
         """Return the matrix."""
+
+    @classmethod
+    @abc.abstractmethod
+    def identity(cls, shape_or_len):
+        """Factory of an identity matrix in this representation."""
+
+    @classmethod
+    @abc.abstractmethod
+    def from_mat(cls, mat):
+        """Factory that converts a matrix to this representation."""
 
 
 @jdc.pytree_dataclass
@@ -245,11 +255,14 @@ class LowerUnitriangular:
     @property
     def mat(self):
         """The underlying unitriangular matrix."""
-        n = matl_size(self.vech_L.shape[-1]) + 1  # +1 because vech_L excludes diagonal
+        # Get size and shapes
+        n = matl_size(self.vech_L.shape[-1]) + 1
         base_shape = self.vech_L.shape[:-1]
+
         # Create identity matrix
         mat = jnp.zeros(base_shape + (n, n))
-        mat = mat.at[..., jnp.arange(n), jnp.arange(n)].set(1.0)  # Set diagonal to 1
+        mat = mat.at[..., jnp.arange(n), jnp.arange(n)].set(1.0)
+
         # Set lower triangular part (excluding diagonal)
         if n > 1:
             # Create indices for strictly lower triangular part
@@ -272,23 +285,23 @@ class LowerUnitriangular:
             raise ValueError("Input must have at least 2 dimensions.")
         if mat.shape[-1] != mat.shape[-2]:
             raise ValueError("Input must be square.")
-        
+
         n = mat.shape[-1]
         if n == 1:
             # For 1x1 matrices, vech_L is empty
             return cls(jnp.zeros(mat.shape[:-2] + (0,)))
-        
+
         # Extract strictly lower triangular part (excluding diagonal)
         vech_L = []
         for i in range(1, n):
             for j in range(i):
                 vech_L.append(mat[..., i, j])
-        
+
         if vech_L:
             vech_L = jnp.stack(vech_L, axis=-1)
         else:
             vech_L = jnp.zeros(mat.shape[:-2] + (0,))
-        
+
         return cls(vech_L)
 
     @classmethod
@@ -351,10 +364,10 @@ class ExpLExpLT(PositiveDefiniteMatrix):
             raise ValueError("Input must have at least 2 dimensions.")
         if mat.shape[-1] != mat.shape[-2]:
             raise ValueError("Input must be square.")
-        
+
         # Compute Cholesky decomposition
         chol_low = jnp.linalg.cholesky(mat)
-        
+
         # Take matrix logarithm of the Cholesky factor
         # Note: funm doesn't handle vectorized inputs, so we use a simpler approach
         # For lower triangular matrices, we can use a direct approach
@@ -364,12 +377,13 @@ class ExpLExpLT(PositiveDefiniteMatrix):
             # For vectorized inputs, we need to apply funm to each matrix
             def single_logm(mat):
                 return jnp.real(jsp.linalg.funm(mat, jnp.log))
-            log_chol = jax.vmap(single_logm)(chol_low.reshape(-1, chol_low.shape[-2], chol_low.shape[-1]))
-            log_chol = log_chol.reshape(chol_low.shape)
-        
+            chol_low_ravelled = chol_low.reshape(-1, *chol_low.shape[-2:])
+            log_chol_ravelled = jax.vmap(single_logm)(chol_low_ravelled)
+            log_chol = log_chol_ravelled.reshape(chol_low.shape)
+
         # Pack into vech format
         vech_L = vech(log_chol)
-        
+
         return cls(vech_L)
 
     @classmethod
@@ -383,11 +397,13 @@ class ExpLExpLT(PositiveDefiniteMatrix):
                 raise ValueError("Shape must be square.")
             n = shape[-1]
             base_shape = shape[:-2]
-            vech_len = n * (n + 1) // 2  # Length for lower triangular including diagonal
+            # Length for lower triangular including diagonal
+            vech_len = n * (n + 1) // 2
             return cls(jnp.zeros(base_shape + (vech_len,)))
         else:
             n = shape_or_len
-            vech_len = n * (n + 1) // 2  # Length for lower triangular including diagonal
+            # Length for lower triangular including diagonal
+            vech_len = n * (n + 1) // 2
             return cls(jnp.zeros(vech_len))
 
 
@@ -431,24 +447,25 @@ class LExpDLT(PositiveDefiniteMatrix):
             raise ValueError("Input must have at least 2 dimensions.")
         if mat.shape[-1] != mat.shape[-2]:
             raise ValueError("Input must be square.")
-        
+
         # Use LDL decomposition approach
         # For simplicity, we'll use Cholesky and then decompose
         chol = jnp.linalg.cholesky(mat)
-        
+
         # Extract diagonal part and normalize to get L and D
         # First, get the diagonal elements
         diag_chol = jnp.diagonal(chol, axis1=-1, axis2=-2)
-        
+
         # Create diagonal matrix from Cholesky diagonal
-        d = jnp.log(diag_chol ** 2)  # Since chol @ chol.T = mat, diag(chol)^2 = diag(D)
+        # Since chol @ chol.T = mat, diag(chol)^2 = diag(D)
+        d = jnp.log(diag_chol ** 2)
         eD = ExpD(d)
-        
+
         # Get the unit lower triangular part
         # Normalize each row by its diagonal element
         L_mat = chol / diag_chol[..., None, :]
         L = LowerUnitriangular.from_mat(L_mat)
-        
+
         return cls(L=L, eD=eD)
 
     @classmethod
