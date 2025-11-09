@@ -96,8 +96,8 @@ class DimShortPeriod(modeling.StateSpaceBase):
     @classmethod
     def param(cls, data=None, rng=None):
         """Initialize the parameter structure."""
-        Q = mat.mat.LExpDLT.identity(cls.nx)
-        R = mat.mat.LExpDLT.identity(cls.ny)
+        Q = mat.LExpDLT.identity(cls.nx)
+        R = mat.LExpDLT.identity(cls.ny)
         return cls.Param(Q=Q, R=R)
 
     @hedeut.jax_vectorize_method(signature="(x),(u)->(x)")

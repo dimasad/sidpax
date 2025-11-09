@@ -1,7 +1,9 @@
 """Smoother-Error Method."""
 
-import typing
+import copy
+import functools
 from dataclasses import dataclass
+from typing import Any, Callable, Sequence
 
 import hedeut
 import jax
@@ -28,61 +30,136 @@ class Data:
 
 
 @dataclass
+class SparseObjective:
+    """A sparse component of the objective function."""
+
+    fun: Callable
+    """The underlying objective function."""
+
+    param_filter: Callable = lambda obj, x: x
+    """Filters which parameters are used in this component of the objective."""
+
+    vmap_in_axes: None | int | Sequence[Any] = None
+    """Axes specification for vectorization over inputs."""
+
+    vmap_out_axes: None | int | Sequence[Any] = 0
+    """Axes specification for vectorization over outputs."""
+
+    obj: Any = None
+    """The object the objective function is bound to."""
+
+    def __call__(self, param, *args):
+        if self.obj is None:
+            raise RuntimeError("Cannot call unbound SparseObjective.")
+
+        # Bind method to object
+        fun = self.fun.__get__(self.obj)
+
+        # Vectorize if needed
+        if self.vmap_in_axes is not None:
+            fun = jax.vmap(fun, self.vmap_in_axes, self.vmap_out_axes)
+
+        # Call the bound and vectorized method
+        return fun(self.param_filter(self.obj, param), *args)
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            raise TypeError
+
+        self_copy = copy.copy(self)
+        self_copy.obj = obj
+        return self_copy
+
+    def param_filter_fun(self, param_filter):
+        self.param_filter = param_filter
+        return self
+
+
+def sparse_objective(fun):
+    return SparseObjective(fun)
+
+
+@dataclass
 class Estimator:
 
-    model: typing.Any
+    model: Any
     """Underlying dynamical system model."""
-
-    Q_diag: bool = False
-    """Whether discrete-time process noise covariance Q is diagonal."""
-
-    R_diag: bool = True
-    """Whether measurement noise covariance R is diagonal."""
 
     @jdc.pytree_dataclass
     class Param:
-        p: typing.Any
+        p: Any
         mu: jax.Array
         Sigma_cond: mat.PositiveDefiniteMatrix
         S_cross: jax.Array
 
     def param(self, data, rng=None):
+        # Get base sizes
+        nx = self.model.nx
+        ny = self.model.ny
         N = len(data)
+
+        # Initialize parameters
         p = self.model.param(data, rng)
-        mu = jnp.zeros((N, self.model.nx))
-        Sigma_cond = stats.LDLTMatrix.I(self.model.nx)
-        S_cross = jnp.zeros((self.model.nx, self.model.nx))
+        mu = jnp.zeros((N, nx))
+        Sigma_cond = mat.LExpDLT.identity(nx)
+        S_cross = jnp.zeros((self.model.nx, nx))
+
+        # Create dataclass and return
         return self.Param(p=p, mu=mu, Sigma_cond=Sigma_cond, S_cross=S_cross)
-
-    def res_cov(self, data, param):
-        """Residuals covariance matrices."""
-        # Compute residuals
-        xres = self.xres(data, param)
-        yres = self.yres(data, param)
-
-        # Compute residual outer products
-        xres_outer = jnp.einsum("...i,...j->...ij", xres, xres)
-        yres_outer = jnp.einsum("...i,...j->...ij", yres, yres)
-
-        # Average over time and posterior sample
-        Q = xres_outer.mean((0, 1))
-        R = yres_outer.mean((0, 1))
-
-        # Perform Cholesky decomposition and return
-        Q_chol = jsp.linalg.cholesky(Q, lower=True)
-        R_chol = jsp.linalg.cholesky(R, lower=True)
-
-        # Diagonalize covariances, if needed, and return
-        Q_chol = jnp.triu(Q_chol) if self.Q_diag else Q_chol
-        R_chol = jnp.triu(R_chol) if self.R_diag else R_chol
-        return Q_chol, R_chol
 
     @staticmethod
     def state_path_entropy(Sigma_cond, N):
         """Differential entropy of the state-path posterior."""
-        S_cond = Sigma_cond.chol
+        S_cond = Sigma_cond.chol_low
         logdet_Sigma_cond = 2 * jnp.log(jnp.diagonal(S_cond)).sum()
         return 0.5 * logdet_Sigma_cond * N
+
+    @jdc.pytree_dataclass
+    class TransParam:
+        """State transition parameters."""
+
+        mu_curr: jax.Array
+        mu_next: jax.Array
+        p: Any
+        Sigma_cond: mat.PositiveDefiniteMatrix
+        S_cross: jax.Array
+
+    @sparse_objective
+    def trans_logpdf(self, param: TransParam, u_curr: jax.Array):
+        # Get the Cholesky factor of the marginal state covariance
+        S_cond = param.Sigma_cond.chol_low
+        S_marg = mat.tria_qr(S_cond, param.S_cross)
+
+        # Get the standard normal sigma points and weights.
+        # Note that weights will be discarded, as they are all equal.
+        nx = self.model.nx
+        std_dev, weights = stats.sigmapts(2 * nx)
+
+        # Scale the sigma points
+        x_curr_dev = jnp.matvec(S_marg, std_dev[:, :nx])
+        x_next_dev = jnp.matvec(param.S_cross, std_dev[:, :nx]) + jnp.matvec(
+            S_cond, std_dev[:, -nx:]
+        )
+
+        # Add the mean
+        x_curr = param.mu_curr + x_curr_dev
+        x_next = param.mu_next + x_next_dev
+
+        # Bind the model to the parameters and compute the logpdf
+        mdl = self.model.bind(param.p)
+        return mdl.trans_logpdf(x_next, x_curr, u_curr).mean()
+
+    @trans_logpdf.param_filter_fun
+    def trans_logpdf(self, param: Param) -> TransParam:
+        return self.TransParam(
+            mu_curr=param.mu[:-1],
+            mu_next=param.mu[1:],
+            p=param.p,
+            Sigma_cond=param.Sigma_cond,
+            S_cross=param.S_cross,
+        )
+
+    trans_logpdf.vmap_in_axes = (TransParam(0, 0, None, None, None), 0)
 
     def cost(self, data, param):
         """Optimization cost function."""
@@ -191,7 +268,7 @@ class Estimator:
     def yres_sample(self, datum: Data, param: Param):
         """Measurement output residuals for a single time sample."""
         # Get the Cholesky factor of the marginal state covariance
-        S_cond = param.Sigma_cond.chol
+        S_cond = param.Sigma_cond.chol_low
         S_marg = mat.tria_qr(S_cond, param.S_cross)
 
         # Get the standard normal sigma points and weights.
@@ -225,7 +302,7 @@ class Estimator:
     def xres_sample(self, u_curr, mu_next, mu_curr, p, Sigma_cond, S_cross):
         """Discrete-time state transition residuals for a single sample pair."""
         # Get the Cholesky factor of the marginal state covariance
-        S_cond = Sigma_cond.chol
+        S_cond = Sigma_cond.chol_low
         S_marg = mat.tria_qr(S_cond, S_cross)
 
         # Get the standard normal sigma points and weights.
