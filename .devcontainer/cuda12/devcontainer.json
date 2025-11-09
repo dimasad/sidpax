@@ -2,11 +2,16 @@
     "name": "Sidpax Dev Container (with CUDA 12)",
     "image": "mcr.microsoft.com/devcontainers/python:3.14",
     "postCreateCommand": "./.devcontainer/cuda12/post-create.sh",
-    "runArgs": ["--gpus", "all"],
+    "runArgs": [
+        "--gpus",
+        "all"
+    ],
     "customizations": {
         "vscode": {
             "settings": {
-                "python.formatting.provider": "black"
+                "[python]": {
+                    "editor.defaultFormatter": "ms-python.black-formatter"
+                }
             },
             "extensions": [
                 "ms-python.python",
