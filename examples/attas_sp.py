@@ -23,6 +23,13 @@ from sidpax import cli, common, mat, modeling, sem, stats
 class CLIArguments:
     """Script command-line arguments."""
 
+    @dataclass
+    class JaxArguments(cli.JaxArguments):
+        """JAX configuration arguments."""
+
+        x64: bool = True
+        """Use double precision (64bits) in JAX."""
+
     @staticmethod
     def _datafiles_factory():
         data_dir = pathlib.Path(sys.argv[0]).parent / "data"
@@ -40,7 +47,7 @@ class CLIArguments:
     testing: cli.TestingArguments
     """Testing arguments."""
 
-    jax: cli.JaxArguments
+    jax: JaxArguments
     """JAX configuration arguments."""
 
     datafiles: list[pathlib.Path] = field(default_factory=_datafiles_factory)
