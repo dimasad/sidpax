@@ -76,7 +76,7 @@ class SparseObjective:
 
 
 def sparse_objective(fun):
-    return SparseObjective(fun)
+    return functools.wraps(fun)(SparseObjective(fun))
 
 
 @dataclass
@@ -142,12 +142,12 @@ class Estimator:
         )
 
         # Add the mean
-        x_curr = param.mu_curr + x_curr_dev
-        x_next = param.mu_next + x_next_dev
+        x_curr_samples = param.mu_curr + x_curr_dev
+        x_next_samples = param.mu_next + x_next_dev
 
         # Bind the model to the parameters and compute the logpdf
         mdl = self.model.bind(param.p)
-        return mdl.trans_logpdf(x_next, x_curr, u_curr).mean()
+        return mdl.trans_logpdf(x_next_samples, x_curr_samples, u_curr).mean()
 
     @trans_logpdf.param_filter_fun
     def trans_logpdf(self, param: Param) -> TransParam:
@@ -160,6 +160,29 @@ class Estimator:
         )
 
     trans_logpdf.vmap_in_axes = (TransParam(0, 0, None, None, None), 0)
+
+    @sparse_objective
+    def meas_logpdf(self, param: Param, datum: Data):
+        # Get the Cholesky factor of the marginal state covariance
+        S_cond = param.Sigma_cond.chol_low
+        S_marg = mat.tria_qr(S_cond, param.S_cross)
+
+        # Get the standard normal sigma points and weights.
+        # Note that weights will be discarded, as they are all equal.
+        nx = self.model.nx
+        std_dev, weights = stats.sigmapts(nx)
+
+        # Scale the sigma points
+        x_dev = jnp.matvec(S_marg, std_dev)
+
+        # Add the mean
+        x_samples = param.mu + x_dev
+
+        # Bind the model to the parameters and compute the logpdf
+        mdl = self.model.bind(param.p)
+        return mdl.meas_logpdf(datum.y, x_samples, datum.u).mean()
+
+    meas_logpdf.vmap_in_axes = (Param(None, 0, None, None), 0)
 
     def cost(self, data, param):
         """Optimization cost function."""
