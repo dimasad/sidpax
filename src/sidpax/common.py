@@ -58,11 +58,11 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     """
     Hessian of the sum of a vectorized scalar function `f` in sparse COO format.
 
-    This function returns a callable that computes the Hessian matrix of `f` 
+    This function returns a callable that computes the Hessian matrix of `f`
     with respect to the specified argument indices (`argnum`), and returns the
     result in sparse COO format suitable for efficient storage and manipulation.
 
-    The returned function is vectorized using JAX's `vmap`, allowing batch 
+    The returned function is vectorized using JAX's `vmap`, allowing batch
     computation over multiple inputs.
 
     Parameters
@@ -72,18 +72,18 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     argnum : Sequence[int]
         Indices of arguments with respect to which the Hessian is computed.
     vmap_in_axes : None, int or tuple, optional
-        Axes specification for vectorization over inputs. Passed as the 
+        Axes specification for vectorization over inputs. Passed as the
         `in_axes` argument to JAX's `vmap`. If `None`, the default, no
         vectorization is applied.
     vmap_out_axes : int or tuple, optional
-        Axes specification for vectorization over outputs. Passed as the 
+        Axes specification for vectorization over outputs. Passed as the
         `out_axes` argument to JAX's `vmap`. This argument is ignored if
         `vmap_in_axes` is `None` (default: 0).
 
     Returns
     -------
     Callable
-        A function that computes the sparse Hessian in COO format: 
+        A function that computes the sparse Hessian in COO format:
         (values, (row_indices, col_indices)).
 
     Examples
@@ -107,6 +107,7 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     >>> np.allclose(sparse_hess.todense(), np.array(dense_hess))
     True
     """
+
     @functools.wraps(f)
     def wrapped_f(args, arginds):
         argder = [a for i, a in enumerate(args) if i in argnum]
@@ -129,15 +130,14 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     # Return if no vectorization is needed
     if vmap_in_axes is None:
         return wrapped_f
-    
+
     # Create new wrapper with vectorization and return
     @functools.wraps(wrapped_f)
     def vmapped(args, arginds):
         coo = jax.vmap(wrapped_f, vmap_in_axes, vmap_out_axes)(args, arginds)
         return coo[0].flatten(), (coo[1][0].flatten(), coo[1][1].flatten())
+
     return vmapped
-
-
 
 
 def allow_kwargs(f: Callable):
