@@ -69,7 +69,7 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     ----------
     f : Callable
         Scalar function to differentiate. Should accept positional arguments.
-    argnum : Sequence[int]
+    argnum : int or Sequence[int]
         Indices of arguments with respect to which the Hessian is computed.
     vmap_in_axes : None, int or tuple, optional
         Axes specification for vectorization over inputs. Passed as the
@@ -107,6 +107,9 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     >>> np.allclose(sparse_hess.todense(), np.array(dense_hess))
     True
     """
+    # Ensure argnum is a sequence
+    if isinstance(argnum, int):
+        argnum = [argnum]
 
     @functools.wraps(f)
     def wrapped_f(args, arginds):
@@ -131,10 +134,19 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     if vmap_in_axes is None:
         return wrapped_f
 
+    # Determine the `in_axes` for vmap-ing the wrapped_f
+    if isinstance(vmap_in_axes, int):
+        wrapper_in_axes = vmap_in_axes
+    else:
+        argder_in_axes = tuple(
+            a for i, a in enumerate(vmap_in_axes) if i in argnum
+        )
+        wrapper_in_axes = (vmap_in_axes, argder_in_axes)
+
     # Create new wrapper with vectorization and return
     @functools.wraps(wrapped_f)
     def vmapped(args, arginds):
-        coo = jax.vmap(wrapped_f, vmap_in_axes, vmap_out_axes)(args, arginds)
+        coo = jax.vmap(wrapped_f, wrapper_in_axes, vmap_out_axes)(args, arginds)
         return coo[0].flatten(), (coo[1][0].flatten(), coo[1][1].flatten())
 
     return vmapped

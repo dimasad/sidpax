@@ -168,13 +168,9 @@ if __name__ == "__main__":
     param = est.param(dataest[0], init_key)
     paramvec, unpack = jax.flatten_util.ravel_pytree(param)
 
-    cost = jax.jit(lambda v: est.cost(data[0], unpack(v)))
+    cost = jax.jit(lambda v: -est.elbo(unpack(v), data[0]))
     grad = jax.jit(jax.grad(cost))
-    hess_dense = jax.jit(jax.hessian(cost))
-    hess_coo = jax.jit(lambda v: est.cost_hess(data[0], unpack(v)))
-    def hess(v): return sparse.coo_array(hess_coo(v)).tocsc()
-    hessp = jax.jit(lambda v, d: jax.jvp(
-        grad, (v,), (jnp.astype(d, v.dtype),))[0])
+    hess = jax.jit(jax.hessian(cost))
 
     result = optimize.minimize(
         cost,
