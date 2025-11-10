@@ -2,7 +2,7 @@
 
 """ATTAS short-period motion, Variational System Identification.
 
-Based on data and code (test case 11) from 
+Based on data and code (test case 11) from
 "Flight Vehicle System Identification - A Time Domain Methodology"
 Second Edition
 Author: Ravindra V. Jategaonkar
@@ -14,10 +14,10 @@ Data available at
 Original code available at
     https://arc.aiaa.org/doi/suppl/10.2514/4.102790/suppl_file/chapter04.zip
 
-An earlier version of this script was published in the repository 
-https://github.com/dimasad/scitech-2025-code/ and the paper "Variational System 
-Identification of Aircraft", presented in AIAA SciTech 2025, 
-[DOI:10.2514/6.2025-1253](https://arc.aiaa.org/doi/10.2514/6.2025-1253) and 
+An earlier version of this script was published in the repository
+https://github.com/dimasad/scitech-2025-code/ and the paper "Variational System
+Identification of Aircraft", presented in AIAA SciTech 2025,
+[DOI:10.2514/6.2025-1253](https://arc.aiaa.org/doi/10.2514/6.2025-1253) and
 [arXiv:2510.26496](https://arxiv.org/abs/2510.26496).
 """
 
@@ -72,7 +72,7 @@ class CLIArguments:
     datafiles: list[pathlib.Path] = field(default_factory=_datafiles_factory)
     """Input data files."""
 
-    maxiter: int = 100
+    maxiter: int = 500
     """Maximum number of optimizer iterations."""
 
     output: pathlib.Path = field(default_factory=_output_factory)
@@ -91,7 +91,7 @@ class CLIArguments:
             raise ValueError("Maximum iterations must be positive.")
 
 
-class DimShortPeriod(modeling.StateSpaceBase):
+class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
     """Dimensional short-period motion model."""
 
     nx: int = 2
@@ -155,20 +155,10 @@ class DimShortPeriod(modeling.StateSpaceBase):
         """Discrete-time state transition function."""
         return x + self.fc(x, u) * self.dt  # Euler's method
 
-    @common.jax_vectorize_method(signature="(x),(x),(u)->()")
-    def trans_logpdf(self, xnext, x, u):
-        """Log-density of a state transition, log p(x_{k+1} | x_k, u_k)."""
-        return stats.mvn_logpdf(xnext, self.f(x, u), self.Q)
-
     @common.jax_vectorize_method(signature="(x),(u)->(y)")
     def h(self, x, u):
         """Output function."""
         return x
-
-    @common.jax_vectorize_method(signature="(y),(x),(u)->()")
-    def meas_logpdf(self, y, x, u):
-        """Log-density of a measurement, log p(y_k | x_k, u_k)."""
-        return stats.mvn_logpdf(y, self.h(x, u), self.R)
 
 
 if __name__ == "__main__":

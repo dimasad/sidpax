@@ -93,17 +93,24 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     >>> import numpy as np
     >>> from sidpax.common import sparse_hessian, pytree_ind
     >>> import scipy.sparse
+    >>> # Scalar, vectorized function
     >>> def f(x, y):
     ...     return x**2 + y**3
+
+    >>> # Hessian function arguments
     >>> x = jnp.array([1.0, 2.0])
     >>> y = jnp.array([3.0, 4.0])
     >>> args = (x, y)
     >>> arginds = pytree_ind(args)
+
+    >>> # Create and call Hessian function
     >>> hess_fn = sparse_hessian(f, argnum=(0, 1), vmap_in_axes=0)
     >>> values, (rows, cols) = hess_fn(args, arginds)
     >>> sparse_hess = scipy.sparse.coo_matrix((values, (rows, cols)))
-    >>> argvec, unpack = jax.flatten_util.ravel_pytree(args)
-    >>> dense_hess = jax.hessian(lambda argvec: f(*unpack(argvec)).sum())(argvec)
+
+    >>> # Check if it is equivalent to the Hessian of flattened pytree
+    >>> vec, unpack = jax.flatten_util.ravel_pytree(args)
+    >>> dense_hess = jax.hessian(lambda vec: f(*unpack(vec)).sum())(vec)
     >>> np.allclose(sparse_hess.todense(), np.array(dense_hess))
     True
     """
@@ -156,9 +163,9 @@ def concatenate_coo(*args):
     """
     Concatenate multiple sparse COO matrices represented as (values, (row, col)).
 
-    This function takes multiple sparse COO matrices, each represented as a 
-    triplet of (values, (row_indices, col_indices)), and concatenates them into 
-    a single COO matrix. 
+    This function takes multiple sparse COO matrices, each represented as a
+    triplet of (values, (row_indices, col_indices)), and concatenates them into
+    a single COO matrix.
 
     Parameters
     ----------
@@ -167,7 +174,7 @@ def concatenate_coo(*args):
         - values: 1D array of non-zero values.
         - (row_indices, col_indices): Tuple of 1D arrays representing the row and
           column indices of the non-zero values.
-    
+
     Returns
     -------
     tuple

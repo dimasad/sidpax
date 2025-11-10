@@ -8,9 +8,10 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import jax_dataclasses as jdc
 import numpy as np
 
-from sidpax import common
+from sidpax import common, mat, stats
 
 
 class StateSpaceBase:
@@ -31,5 +32,29 @@ class StateSpaceBase:
             for k, v in d.items():
                 if not hasattr(bound, k):
                     setattr(bound, k, v)
-        
+
         return bound
+
+
+class MVNTransition(StateSpaceBase):
+    """Multivariate normal state transition model."""
+
+    Q: mat.PositiveDefiniteMatrix
+    """State transition covariance matrix."""
+
+    @common.jax_vectorize_method(signature="(x),(x),(u)->()")
+    def trans_logpdf(self, xnext, x, u):
+        """Log-density of a state transition, log p(x_{k+1} | x_k, u_k)."""
+        return stats.mvn_logpdf(xnext, self.f(x, u), self.Q)
+
+
+class MVNMeasurement(StateSpaceBase):
+    """Multivariate normal measurement model."""
+
+    R: mat.PositiveDefiniteMatrix
+    """Measurement covariance matrix."""
+
+    @common.jax_vectorize_method(signature="(y),(x),(u)->()")
+    def meas_logpdf(self, y, x, u):
+        """Log-density of a measurement, log p(y_k | x_k, u_k)."""
+        return stats.mvn_logpdf(y, self.h(x, u), self.R)
