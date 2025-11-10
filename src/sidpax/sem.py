@@ -141,11 +141,9 @@ class Estimator:
 
     @sparse_objective
     @staticmethod
-    def state_path_entropy(Sigma_cond, N):
+    def state_path_entropy(Sigma_cond: mat.PositiveDefiniteMatrix, N: int):
         """Differential entropy of the state-path posterior."""
-        S_cond = Sigma_cond.chol_low
-        logdet_Sigma_cond = 2 * jnp.log(jnp.diagonal(S_cond)).sum()
-        return 0.5 * logdet_Sigma_cond * N
+        return 0.5 * Sigma_cond.logdet * N
 
     @state_path_entropy.param_filter_fun
     def state_path_entropy(self, param: Param) -> jax.Array:
@@ -228,3 +226,13 @@ class Estimator:
         trans_logpdf = self.trans_logpdf(param, data.u[:-1])
         meas_logpdf = self.meas_logpdf(param, data)
         return entropy + trans_logpdf.mean(0) + meas_logpdf.mean(0)
+
+    def elbo_hessian(self, param: Param, data: Data, param_ind=None):
+        """Hessian of the ELBO with respect to the parameters."""
+        kwd = dict(param_ind=param_ind)
+        hess_components = [
+            self.state_path_entropy.hessian(param, len(data), **kwd),
+            self.trans_logpdf.hessian(param, data.u[:-1], **kwd),
+            self.meas_logpdf.hessian(param, data, **kwd),
+        ]
+        return common.concatenate_coo(*hess_components)

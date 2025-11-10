@@ -152,6 +152,34 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
     return vmapped
 
 
+def concatenate_coo(*args):
+    """
+    Concatenate multiple sparse COO matrices represented as (values, (row, col)).
+
+    This function takes multiple sparse COO matrices, each represented as a 
+    triplet of (values, (row_indices, col_indices)), and concatenates them into 
+    a single COO matrix. 
+
+    Parameters
+    ----------
+    *args : tuple
+        Variable number of tuples, each containing:
+        - values: 1D array of non-zero values.
+        - (row_indices, col_indices): Tuple of 1D arrays representing the row and
+          column indices of the non-zero values.
+    
+    Returns
+    -------
+    tuple
+        A tuple representing the concatenated COO matrix in the form:
+        (values, (row_indices, col_indices)).
+    """
+    val = jnp.concatenate([jnp.ravel(h[0]) for h in args])
+    row = jnp.concatenate([jnp.ravel(h[1][0]) for h in args])
+    col = jnp.concatenate([jnp.ravel(h[1][1]) for h in args])
+    return val, (row, col)
+
+
 def allow_kwargs(f: Callable):
     """
     Decorator that allows a function that only accepts positional arguments

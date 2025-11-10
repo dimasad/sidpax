@@ -174,10 +174,12 @@ if __name__ == "__main__":
     est = sem.Estimator(model)
     param = est.param(dataest[0], init_key)
     paramvec, unpack = jax.flatten_util.ravel_pytree(param)
+    nparam = len(paramvec)
 
-    cost = jax.jit(lambda v: -est.elbo(unpack(v), data[0]))
+    cost = jax.jit(lambda v: -est.elbo(unpack(v), dataest[0]))
     grad = jax.jit(jax.grad(cost))
-    hess = jax.jit(jax.hessian(cost))
+    elbo_hess = jax.jit(lambda v: est.elbo_hessian(unpack(v), dataest[0]))
+    hess = lambda v: -sparse.coo_array(elbo_hess(v))
 
     result = optimize.minimize(
         cost,
@@ -192,4 +194,4 @@ if __name__ == "__main__":
     popt = paramopt.p
 
     mdlopt = model.bind(paramopt.p)
-    yopt = mdlopt.h(paramopt.mu, data[0].u)
+    yopt = mdlopt.h(paramopt.mu, dataest[0].u)
