@@ -1,6 +1,25 @@
 #!/usr/bin/env python3
 
-"""ATTAS short-period motion."""
+"""ATTAS short-period motion, Variational System Identification.
+
+Based on data and code (test case 11) from 
+"Flight Vehicle System Identification - A Time Domain Methodology"
+Second Edition
+Author: Ravindra V. Jategaonkar
+Published by AIAA, Reston, VA 20191, USA
+
+Data available at
+    https://arc.aiaa.org/doi/suppl/10.2514/4.102790/suppl_file/flt_data.zip
+
+Original code available at
+    https://arc.aiaa.org/doi/suppl/10.2514/4.102790/suppl_file/chapter04.zip
+
+An earlier version of this script was published in the repository 
+https://github.com/dimasad/scitech-2025-code/ and the paper "Variational System 
+Identification of Aircraft", presented in AIAA SciTech 2025, 
+[DOI:10.2514/6.2025-1253](https://arc.aiaa.org/doi/10.2514/6.2025-1253) and 
+[arXiv:2510.26496](https://arxiv.org/abs/2510.26496).
+"""
 
 import functools
 import pathlib
