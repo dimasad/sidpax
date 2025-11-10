@@ -225,7 +225,7 @@ class Estimator:
         entropy = self.state_path_entropy(param, len(data))
         trans_logpdf = self.trans_logpdf(param, data.u[:-1])
         meas_logpdf = self.meas_logpdf(param, data)
-        return entropy + trans_logpdf.mean(0) + meas_logpdf.mean(0)
+        return entropy + trans_logpdf.sum(0) + meas_logpdf.sum(0)
 
     def elbo_hessian(self, param: Param, data: Data, param_ind=None):
         """Hessian of the ELBO with respect to the parameters."""
