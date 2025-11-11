@@ -151,6 +151,33 @@ class Estimator:
         return param.Sigma_cond
 
     @jdc.pytree_dataclass
+    class PriorParam:
+        """Prior parameters."""
+
+        p: Any
+        mu0: jax.Array
+        Sigma_cond: mat.PositiveDefiniteMatrix
+        S_cross: jax.Array
+
+    @sparse_objective
+    def prior_logpdf(self, param: PriorParam):
+        """Log-density of the initial state and parameters."""
+        x_samples = self.sample_x_marg(
+            param.Sigma_cond, param.S_cross, param.mu0
+        )
+        return self.model.bind(param.p).prior_logpdf(x_samples).sum()
+
+    @prior_logpdf.param_filter_fun
+    def prior_logpdf(self, param: Param) -> PriorParam:
+        """Selects parameters of the prior."""
+        return self.PriorParam(
+            p=param.p,
+            mu0=param.mu[0],
+            Sigma_cond=param.Sigma_cond,
+            S_cross=param.S_cross,
+        )
+
+    @jdc.pytree_dataclass
     class TransParam:
         """State transition parameters."""
 
@@ -199,20 +226,9 @@ class Estimator:
 
     @sparse_objective
     def meas_logpdf(self, param: Param, data: Data):
-        # Get the Cholesky factor of the marginal state covariance
-        S_cond = param.Sigma_cond.chol_low
-        S_marg = mat.tria_qr(S_cond, param.S_cross)
-
-        # Get the standard normal sigma points and weights.
-        # Note that weights will be discarded, as they are all equal.
-        nx = self.model.nx
-        std_dev, weights = stats.sigmapts(nx)
-
-        # Scale the sigma points
-        x_dev = jnp.matvec(S_marg, std_dev)
-
-        # Add the mean
-        x_samples = param.mu + x_dev
+        x_samples = self.sample_x_marg(
+            param.Sigma_cond, param.S_cross, param.mu
+        )
 
         # Bind the model to the parameters and compute the logpdf
         mdl = self.model.bind(param.p)
@@ -222,17 +238,36 @@ class Estimator:
 
     def elbo(self, param: Param, data: Data) -> jax.Array:
         """Variational inference evidence lower bound."""
+        prior = self.prior_logpdf(param)
         entropy = self.state_path_entropy(param, len(data))
         trans_logpdf = self.trans_logpdf(param, data.u[:-1])
         meas_logpdf = self.meas_logpdf(param, data)
-        return entropy + trans_logpdf.sum(0) + meas_logpdf.sum(0)
+        return prior + entropy + trans_logpdf.sum(0) + meas_logpdf.sum(0)
 
     def elbo_hessian(self, param: Param, data: Data, param_ind=None):
         """Hessian of the ELBO with respect to the parameters."""
         kwd = dict(param_ind=param_ind)
         hess_components = [
+            self.prior_logpdf.hessian(param, **kwd),
             self.state_path_entropy.hessian(param, len(data), **kwd),
             self.trans_logpdf.hessian(param, data.u[:-1], **kwd),
             self.meas_logpdf.hessian(param, data, **kwd),
         ]
         return common.concatenate_coo(*hess_components)
+
+    def sample_x_marg(self, Sigma_cond, S_cross, mu):
+        """Sample from the marginal state distribution."""
+        # Get the Cholesky factor of the marginal state covariance
+        S_marg = mat.tria_qr(Sigma_cond.chol_low, S_cross)
+
+        # Get the standard normal sigma points and weights.
+        # Note that weights will be discarded, as they are all equal.
+        nx = self.model.nx
+        std_dev, weights = stats.sigmapts(nx)
+
+        # Scale the sigma points
+        x_dev = jnp.matvec(S_marg, std_dev)
+
+        # Add the mean and return
+        x_samples = mu + x_dev
+        return x_samples

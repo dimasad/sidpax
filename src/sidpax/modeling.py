@@ -17,6 +17,15 @@ from sidpax import common, mat, stats
 class StateSpaceBase:
     """Base class for state-space model."""
 
+    nx: int
+    """Number of states."""
+
+    nu: int
+    """Number of exogenous inputs."""
+
+    ny: int
+    """Number of outputs."""
+
     def bind(self, *args):
         # Make a deep copy of the object
         bound = copy.deepcopy(self)
@@ -34,6 +43,10 @@ class StateSpaceBase:
                     setattr(bound, k, v)
 
         return bound
+
+    def prior_logpdf(self, x0):
+        """Prior log-density of the initial state and parameters."""
+        return jnp.array(0.0)
 
 
 class MVNTransition(StateSpaceBase):
