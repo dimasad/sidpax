@@ -1,9 +1,8 @@
 """Smoother-Error Method."""
 
-import copy
 import functools
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import hedeut
 import jax
@@ -13,6 +12,7 @@ import jax_dataclasses as jdc
 from jax.flatten_util import ravel_pytree
 
 from . import common, mat, stats
+from .sparse import SparseObjective, sparse_objective
 
 
 @jdc.pytree_dataclass
@@ -29,89 +29,7 @@ class Data:
         return len(self.y)
 
 
-@dataclass
-class SparseObjective:
-    """A sparse component of the objective function."""
-
-    fun: Callable
-    """The underlying objective function."""
-
-    param_filter: Callable = lambda obj, x: x
-    """Filters which parameters are used in this component of the objective."""
-
-    vmap_in_axes: None | int | Sequence[Any] = None
-    """Axes specification for vectorization over inputs."""
-
-    vmap_out_axes: None | int | Sequence[Any] = 0
-    """Axes specification for vectorization over outputs."""
-
-    obj: Any = None
-    """The object the objective function is bound to."""
-
-    @property
-    def bound_fun(self):
-        """`fun` bound to the underlying object"""
-        return self.fun.__get__(self.obj, type(self.obj))
-
-    @property
-    def bound_param_filter(self):
-        """`param_filter` bound to the underlying object"""
-        return self.param_filter.__get__(self.obj, type(self.obj))
-
-    def __call__(self, param, *args):
-        if self.obj is None:
-            raise RuntimeError("Cannot call unbound SparseObjective.")
-
-        # Bind method to object
-        fun = self.bound_fun
-
-        # Vectorize if needed
-        if self.vmap_in_axes is not None:
-            fun = jax.vmap(fun, self.vmap_in_axes, self.vmap_out_axes)
-
-        # Get the function parameters
-        fun_param = self.bound_param_filter(param)
-
-        # Call the bound and vectorized method
-        return fun(fun_param, *args)
-
-    def __get__(self, obj, objtype=None):
-        if obj is None:
-            raise TypeError
-
-        self_copy = copy.copy(self)
-        self_copy.obj = obj
-        return self_copy
-
-    def param_filter_fun(self, param_filter):
-        self.param_filter = param_filter
-        return self
-
-    def hessian(self, param, *args, param_ind=None):
-        if self.obj is None:
-            raise RuntimeError("Hessian requires bound SparseObjective.")
-
-        # Create parameters if needed
-        if param_ind is None:
-            param_ind = common.pytree_ind(param)
-
-        # Get the function parameters and parameter indices
-        fun_param = self.bound_param_filter(param)
-        fun_param_ind = self.bound_param_filter(param_ind)
-
-        # Obtain sparse Hessian function
-        hess = common.sparse_hessian(
-            self.bound_fun, 0, self.vmap_in_axes, self.vmap_out_axes
-        )
-
-        return hess((fun_param, *args), (fun_param_ind,))
-
-
-def sparse_objective(fun):
-    return functools.wraps(fun)(SparseObjective(fun))
-
-
-@dataclass
+@jdc.pytree_dataclass
 class Estimator:
 
     model: Any
