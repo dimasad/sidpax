@@ -114,7 +114,7 @@ def matl_diag(v: ArrayLike) -> jax.Array:
     if v.ndim < 1:
         raise ValueError("Input must have at least one dimension.")
     n = matl_size(v.shape[-1])
-    i, j = jnp.triu_indices(n)[::-1]
+    i, j = np.triu_indices(n)[::-1]
     return v[..., i == j]
 
 
