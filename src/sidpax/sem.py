@@ -49,13 +49,13 @@ class SparseObjective:
     """The object the objective function is bound to."""
 
     @property
-    def bound_fun(self):
-        """`fun` bound to the underlying object"""
+    def _bound_fun(self):
+        """`fun` bound to the underlying object."""
         return self.fun.__get__(self.obj, type(self.obj))
 
     @property
-    def bound_param_filter(self):
-        """`param_filter` bound to the underlying object"""
+    def _bound_param_filter(self):
+        """`param_filter` bound to the underlying object."""
         return self.param_filter.__get__(self.obj, type(self.obj))
 
     def __call__(self, param, *args):
@@ -63,14 +63,14 @@ class SparseObjective:
             raise RuntimeError("Cannot call unbound SparseObjective.")
 
         # Bind method to object
-        fun = self.bound_fun
+        fun = self._bound_fun
 
         # Vectorize if needed
         if self.vmap_in_axes is not None:
             fun = jax.vmap(fun, self.vmap_in_axes, self.vmap_out_axes)
 
         # Get the function parameters
-        fun_param = self.bound_param_filter(param)
+        fun_param = self._bound_param_filter(param)
 
         # Call the bound and vectorized method
         return fun(fun_param, *args)
@@ -84,10 +84,12 @@ class SparseObjective:
         return self_copy
 
     def param_filter_fun(self, param_filter):
+        """Sets the parameter filter function, for use as a decorator."""
         self.param_filter = param_filter
         return self
 
     def hessian(self, param, *args, param_ind=None):
+        """Return the Hessian of `fun` with respect to the filtered params."""
         if self.obj is None:
             raise RuntimeError("Hessian requires bound SparseObjective.")
 
@@ -96,18 +98,19 @@ class SparseObjective:
             param_ind = common.pytree_ind(param)
 
         # Get the function parameters and parameter indices
-        fun_param = self.bound_param_filter(param)
-        fun_param_ind = self.bound_param_filter(param_ind)
+        fun_param = self._bound_param_filter(param)
+        fun_param_ind = self._bound_param_filter(param_ind)
 
         # Obtain sparse Hessian function
         hess = common.sparse_hessian(
-            self.bound_fun, 0, self.vmap_in_axes, self.vmap_out_axes
+            self._bound_fun, 0, self.vmap_in_axes, self.vmap_out_axes
         )
 
         return hess((fun_param, *args), (fun_param_ind,))
 
 
 def sparse_objective(fun):
+    """Decorator for creating a `SparseObjective` objective in a class."""
     return functools.wraps(fun)(SparseObjective(fun))
 
 

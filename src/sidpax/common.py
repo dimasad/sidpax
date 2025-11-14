@@ -82,9 +82,9 @@ def sparse_hessian(f, argnum, vmap_in_axes=None, vmap_out_axes=0):
 
     Returns
     -------
-    Callable
-        A function that computes the sparse Hessian in COO format:
-        (values, (row_indices, col_indices)).
+    hess: Callable[[tuple, tuple], tuple]
+        A function that computes the sparse Hessian in COO format, the return
+        is a tuple in the format (values, (row_indices, col_indices)).
 
     Examples
     --------
