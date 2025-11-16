@@ -1,10 +1,7 @@
 """Smoother-Error Method."""
 
-import copy
-import dataclasses
-import functools
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import hedeut
 import jax
@@ -13,7 +10,8 @@ import jax.scipy as jsp
 import jax_dataclasses as jdc
 from jax.flatten_util import ravel_pytree
 
-from . import common, mat, stats
+from . import sparse, mat, stats
+from .sparse import sparse_objective
 
 
 @jdc.pytree_dataclass
@@ -28,133 +26,6 @@ class Data:
         """Number of samples."""
         assert len(self.y) == len(self.u)
         return len(self.y)
-
-
-@dataclass
-class SparseObjective:
-    """A sparse component of the objective function."""
-
-    fun: Callable
-    """The underlying objective function."""
-
-    param_filter: Callable = lambda obj, x: x
-    """Filters which parameters are used in this component of the objective."""
-
-    vmap_in_axes: None | int | Sequence[Any] = None
-    """Axes specification for vectorization over the inputs of bound `fun`."""
-
-    vmap_out_axes: None | int | Sequence[Any] = 0
-    """Axes specification for vectorization over the outputs of `fun`."""
-
-    obj: None | object = None
-    """The object the objective function is bound to (None if unbound)."""
-
-    @property
-    def _bound_fun(self):
-        """`fun` bound to the underlying object."""
-        return self.fun.__get__(self.obj, type(self.obj))
-
-    @property
-    def _bound_param_filter(self):
-        """`param_filter` bound to the underlying object."""
-        return self.param_filter.__get__(self.obj, type(self.obj))
-
-    def __call__(self, param, *args):
-        """Binds `fun` to `obj`, vmaps it, filters the first arg, and calls."""
-        if self.obj is None:
-            raise RuntimeError("Cannot call unbound SparseObjective.")
-
-        # Bind method to object
-        fun = self._bound_fun
-
-        # Vectorize if needed
-        if self.vmap_in_axes is not None:
-            fun = jax.vmap(fun, self.vmap_in_axes, self.vmap_out_axes)
-
-        # Get the function parameters
-        fun_param = self._bound_param_filter(param)
-
-        # Call the bound and vectorized method
-        return fun(fun_param, *args)
-
-    def __get__(self, obj, objtype=None):
-        """Returns a copy"""
-        if obj is None:
-            raise TypeError
-        return dataclasses.replace(self, obj=obj)
-
-    def set_param_filter(self, param_filter):
-        """Sets the parameter filter function, for use as a decorator."""
-        return dataclasses.replace(self, param_filter=param_filter)
-
-    def hessian(self, param, *args, param_ind=None):
-        """Return the Hessian of `fun` with respect to the filtered params."""
-        if self.obj is None:
-            raise RuntimeError("Hessian requires bound SparseObjective.")
-
-        # Create parameters if needed
-        if param_ind is None:
-            param_ind = common.pytree_ind(param)
-
-        # Get the function parameters and parameter indices
-        fun_param = self._bound_param_filter(param)
-        fun_param_ind = self._bound_param_filter(param_ind)
-
-        # Obtain sparse Hessian function
-        hess = common.sparse_hessian(
-            self._bound_fun, 0, self.vmap_in_axes, self.vmap_out_axes
-        )
-
-        return hess((fun_param, *args), (fun_param_ind,))
-
-
-def sparse_objective(fun: Callable) -> SparseObjective:
-    """Decorator for creating a `SparseObjective` in a class, from a method.
-
-    Parameters
-    ----------
-    fun
-        The method implementing the objective function that will be wrapped.
-        If `fun` is a static or class method, it should be wrapped with the
-        appropriate decorator before being passed to this function.
-
-    Examples
-    --------
-
-    >>> import jax
-    >>> import numpy as np
-    >>> import scipy.sparse
-    >>> from sidpax.sem import sparse_objective
-
-    >>> # Create a simple problem with a decorated objective function
-    >>> class ExampleProblem:
-    ...     @sparse_objective
-    ...     def obj(self, param_filtered: jax.Array, y: jax.Array):
-    ...         return 0.5 * (param_filtered ** 2).sum(0) * y
-    ...
-    ...     @obj.set_param_filter
-    ...     def obj(self, param):
-    ...         return param["filtered"]
-    ...
-    ...     # Vectorize only over first axis of filtered parameters
-    ...     obj.vmap_in_axes = (0, None) 
-
-    >>> # Create the parameters
-    >>> param = dict(filtered=jax.numpy.asarray([[1, 2],[3, 4]], float), z=5.0)
-    >>> y = jax.numpy.asarray(2.0)
-
-    >>> # Instantiate the problem and compute the objective
-    >>> problem = ExampleProblem()
-    >>> obj_value = problem.obj(param, y)
-    >>> print(*obj_value)
-    5.0 25.0
-
-    >>> # Compute the Hessian
-    >>> hess_coo = problem.obj.hessian(param, y)
-    >>> hess = scipy.sparse.coo_array(hess_coo).todense()
-    >>> np.testing.assert_allclose(hess, np.identity(4) * y)
-    """
-    return functools.wraps(fun)(SparseObjective(fun))
 
 
 @dataclass
@@ -299,7 +170,7 @@ class Estimator:
             self.trans_logpdf.hessian(param, data.u[:-1], **kwd),
             self.meas_logpdf.hessian(param, data, **kwd),
         ]
-        return common.concatenate_coo(*hess_components)
+        return sparse.concatenate_coo(*hess_components)
 
     def sample_x_marg(self, Sigma_cond, S_cross, mu):
         """Sample from the marginal state distribution."""
