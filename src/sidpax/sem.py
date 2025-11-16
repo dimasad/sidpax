@@ -1,6 +1,7 @@
 """Smoother-Error Method."""
 
 import copy
+import dataclasses
 import functools
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
@@ -40,13 +41,13 @@ class SparseObjective:
     """Filters which parameters are used in this component of the objective."""
 
     vmap_in_axes: None | int | Sequence[Any] = None
-    """Axes specification for vectorization over inputs."""
+    """Axes specification for vectorization over the inputs of bound `fun`."""
 
     vmap_out_axes: None | int | Sequence[Any] = 0
-    """Axes specification for vectorization over outputs."""
+    """Axes specification for vectorization over the outputs of `fun`."""
 
-    obj: Any = None
-    """The object the objective function is bound to."""
+    obj: None | object = None
+    """The object the objective function is bound to (None if unbound)."""
 
     @property
     def _bound_fun(self):
@@ -59,6 +60,7 @@ class SparseObjective:
         return self.param_filter.__get__(self.obj, type(self.obj))
 
     def __call__(self, param, *args):
+        """Binds `fun` to `obj`, vmaps it, filters the first arg, and calls."""
         if self.obj is None:
             raise RuntimeError("Cannot call unbound SparseObjective.")
 
@@ -76,17 +78,14 @@ class SparseObjective:
         return fun(fun_param, *args)
 
     def __get__(self, obj, objtype=None):
+        """Returns a copy"""
         if obj is None:
             raise TypeError
+        return dataclasses.replace(self, obj=obj)
 
-        self_copy = copy.copy(self)
-        self_copy.obj = obj
-        return self_copy
-
-    def param_filter_fun(self, param_filter):
+    def set_param_filter(self, param_filter):
         """Sets the parameter filter function, for use as a decorator."""
-        self.param_filter = param_filter
-        return self
+        return dataclasses.replace(self, param_filter=param_filter)
 
     def hessian(self, param, *args, param_ind=None):
         """Return the Hessian of `fun` with respect to the filtered params."""
@@ -109,8 +108,52 @@ class SparseObjective:
         return hess((fun_param, *args), (fun_param_ind,))
 
 
-def sparse_objective(fun):
-    """Decorator for creating a `SparseObjective` objective in a class."""
+def sparse_objective(fun: Callable) -> SparseObjective:
+    """Decorator for creating a `SparseObjective` in a class, from a method.
+
+    Parameters
+    ----------
+    fun
+        The method implementing the objective function that will be wrapped.
+        If `fun` is a static or class method, it should be wrapped with the
+        appropriate decorator before being passed to this function.
+
+    Examples
+    --------
+
+    >>> import jax
+    >>> import numpy as np
+    >>> import scipy.sparse
+    >>> from sidpax.sem import sparse_objective
+
+    >>> # Create a simple problem with a decorated objective function
+    >>> class ExampleProblem:
+    ...     @sparse_objective
+    ...     def obj(self, param_filtered: jax.Array, y: jax.Array):
+    ...         return 0.5 * (param_filtered ** 2).sum(0) * y
+    ...
+    ...     @obj.set_param_filter
+    ...     def obj(self, param):
+    ...         return param["filtered"]
+    ...
+    ...     # Vectorize only over first axis of filtered parameters
+    ...     obj.vmap_in_axes = (0, None) 
+
+    >>> # Create the parameters
+    >>> param = dict(filtered=jax.numpy.asarray([[1, 2],[3, 4]], float), z=5.0)
+    >>> y = jax.numpy.asarray(2.0)
+
+    >>> # Instantiate the problem and compute the objective
+    >>> problem = ExampleProblem()
+    >>> obj_value = problem.obj(param, y)
+    >>> print(*obj_value)
+    5.0 25.0
+
+    >>> # Compute the Hessian
+    >>> hess_coo = problem.obj.hessian(param, y)
+    >>> hess = scipy.sparse.coo_array(hess_coo).todense()
+    >>> np.testing.assert_allclose(hess, np.identity(4) * y)
+    """
     return functools.wraps(fun)(SparseObjective(fun))
 
 
@@ -148,7 +191,7 @@ class Estimator:
         """Differential entropy of the state-path posterior."""
         return 0.5 * Sigma_cond.logdet * N
 
-    @state_path_entropy.param_filter_fun
+    @state_path_entropy.set_param_filter
     def state_path_entropy(self, param: Param) -> jax.Array:
         """Selects parameters of the state-path posterior entropy."""
         return param.Sigma_cond
@@ -170,7 +213,7 @@ class Estimator:
         )
         return self.model.bind(param.p).prior_logpdf(x_samples).sum()
 
-    @prior_logpdf.param_filter_fun
+    @prior_logpdf.set_param_filter
     def prior_logpdf(self, param: Param) -> PriorParam:
         """Selects parameters of the prior."""
         return self.PriorParam(
@@ -215,7 +258,7 @@ class Estimator:
         mdl = self.model.bind(param.p)
         return mdl.trans_logpdf(x_next_samples, x_curr_samples, u_curr).mean()
 
-    @trans_logpdf.param_filter_fun
+    @trans_logpdf.set_param_filter
     def trans_logpdf(self, param: Param) -> TransParam:
         return self.TransParam(
             mu_curr=param.mu[:-1],
