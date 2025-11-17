@@ -13,21 +13,6 @@ from sidpax.sparse import sparse_hessian, pytree_ind
 # --- Test Functions ---
 
 
-def simple_add(a, b):
-    """A simple function for testing."""
-    return a + b
-
-
-def power(base, exp=2):
-    """A function with a default argument."""
-    return base**exp
-
-
-def jax_scalar_func(x, y):
-    """A simple scalar function to be vectorized by JAX."""
-    return x**2 + y**3
-
-
 @functools.partial(jnp.vectorize, signature="(),(2),()->()")
 def f(x, y, z):
     """Nonlinear test function with multiple arguments for testing Hessian."""
