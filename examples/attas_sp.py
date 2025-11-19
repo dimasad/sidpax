@@ -25,6 +25,7 @@ import functools
 import pathlib
 import sys
 from dataclasses import dataclass, field
+from typing import Literal
 
 import hedeut
 import jax
@@ -36,7 +37,7 @@ import numpy as np
 import tyro
 from scipy import optimize, sparse
 
-from sidpax import cli, common, mat, modeling, sem, stats
+from sidpax import cli, common, mat, modeling, sem
 
 
 @dataclass
@@ -49,6 +50,8 @@ class CLIArguments:
 
         x64: bool = True
         """Use double precision (64bits) in JAX."""
+
+        platform: Literal["auto", "cpu", "gpu"] = "cpu"
 
     @staticmethod
     def _datafiles_factory():
