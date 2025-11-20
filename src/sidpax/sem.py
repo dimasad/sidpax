@@ -1,7 +1,8 @@
 """Smoother-Error Method."""
 
 from dataclasses import dataclass
-from typing import Any
+import operator
+from typing import Any, Sequence
 
 import hedeut
 import jax
@@ -10,7 +11,7 @@ import jax.scipy as jsp
 import jax_dataclasses as jdc
 from jax.flatten_util import ravel_pytree
 
-from . import sparse, mat, stats
+from . import mat, sparse, stats
 from .sparse import sparse_objective
 
 
@@ -188,3 +189,46 @@ class Estimator:
         # Add the mean and return
         x_samples = mu + x_dev
         return x_samples
+
+
+@jdc.pytree_dataclass
+class MergedParams:
+    unique: Any
+    replicated: list
+    is_unique: jdc.Static[Any]
+
+
+def leaf_select(condition, param):
+    if isinstance(condition, jax.Array):
+        return param[condition.astype(bool)]
+    elif condition:
+        return param
+
+
+def leaf_select_not(condition, param):
+    if isinstance(condition, jax.Array):
+        return param[~condition.astype(bool)]
+    elif not condition:
+        return param
+
+
+def leaf_asfloat(condition):
+    if isinstance(condition, jax.Array):
+        return condition.astype(float)
+    else:
+        return float(condition)
+
+
+def pytree_asfloat(condition):
+    return jax.tree.map(leaf_asfloat, condition)
+
+
+def merge_params(is_unique, params: Sequence):
+    param_mean = jax.tree.map(lambda *p: jnp.mean(jnp.stack(p), 0), *params)
+    is_unique_f = pytree_asfloat(is_unique)
+
+    unique = jax.tree.map(leaf_select, is_unique_f, param_mean)
+    replicated = [jax.tree.map(leaf_select_not, is_unique_f, p) for p in params]
+    return MergedParams(
+        unique=unique, replicated=replicated, is_unique=is_unique
+    )
