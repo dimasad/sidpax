@@ -37,4 +37,8 @@ line-length = 80
 
 [tool.pytest.ini_options]
 addopts = "--doctest-modules"
-doctest_optionflags = ["NORMALIZE_WHITESPACE", "IGNORE_EXCEPTION_DETAIL"]
+doctest_optionflags = [
+  "NORMALIZE_WHITESPACE", 
+  "ELLIPSIS", 
+  "IGNORE_EXCEPTION_DETAIL",
+]
