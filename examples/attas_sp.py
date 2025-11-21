@@ -164,15 +164,14 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
         """Output function."""
         return x
 
-    @common.jax_vectorize_method(signature="(x)->()")
     def prior_logpdf(self, x0):
         """Prior log-density of the initial state and parameters."""
         # A noninformative Gaussian prior is used for regularization
-        prior = jsp.stats.norm.logpdf(x0, scale=10).sum()
-        for f in jdc.fields(model.Param):
-            pvec = jax.flatten_util.ravel_pytree(getattr(self, f.name))[0]
-            prior = prior + jsp.stats.norm.logpdf(pvec, scale=10).sum()
-        return prior
+        param = [getattr(self, f.name) for f in jdc.fields(self.Param)]
+        param_vec = jax.flatten_util.ravel_pytree(param)[0]
+        param_prior = jsp.stats.norm.logpdf(param_vec, scale=10).sum()
+        x0_prior = jsp.stats.norm.logpdf(x0, scale=10).sum()
+        return x0_prior + param_prior
 
 
 if __name__ == "__main__":
