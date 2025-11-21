@@ -2,12 +2,12 @@
 
 import dataclasses
 import functools
-import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 import jax
 import jax.numpy as jnp
+from scipy.sparse import coo_array
 
 
 def identity_filter(param):
@@ -18,18 +18,18 @@ def identity_filter(param):
 @dataclass
 class SparseObjective:
     """A sparse component of the objective function.
-    
+
     The underlying function `fun` is expected to be a method of an object, and
-    the `SparseObjective` instance will be bound to that object. The 
+    the `SparseObjective` instance will be bound to that object. The
     `param_filter` is used to select which parameters are used in this component
     of the objective, so the Hessian can be computed with respect to them.
-    The Hessian is dense with respect to the filtered parameters, but sparse 
+    The Hessian is dense with respect to the filtered parameters, but sparse
     with respect to the full parameter set.
 
-    Before vectorization (or if unvectorized), the function should return a 
+    Before vectorization (or if unvectorized), the function should return a
     scalar `jax.Array`. Vectorization can help computing multiple dense Hessian
     blocks when the full Hessian has a block-sparse structure. The computation
-    of the vectorized Hessian assumes all vectorized outputs are summed 
+    of the vectorized Hessian assumes all vectorized outputs are summed
     together, so that the multiple Hessian blocks in COO form can just be
     concatenated together.
     """
@@ -61,7 +61,7 @@ class SparseObjective:
 
     def __call__(self, param, *args):
         """Binds `fun` to `obj`, vmaps it, filters the first arg, and calls.
-        
+
         Parameters
         ----------
         param
