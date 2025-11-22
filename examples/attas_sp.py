@@ -104,7 +104,7 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
     nu: int = 1
     """Number of exogenous inputs."""
 
-    ny: int = 2
+    ny: int = 3
     """Number of outputs."""
 
     dt: float = 0.04
@@ -122,6 +122,8 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
         Ma: float = 0.0
         Mq: float = 0.0
         Mde: float = 0.0
+        az0: float = 0.0
+        V: float = 1.0
 
     @classmethod
     def param(cls, data=None, rng=None):
@@ -162,7 +164,24 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
     @common.jax_vectorize_method(signature="(x),(u)->(y)")
     def h(self, x, u):
         """Output function."""
-        return x
+        # Unpack arguments
+        alpha, q = x
+        (dele,) = u
+
+        # Unpack model parameters
+        Z0 = self.Z0
+        Za = self.Za
+        Zq = self.Zq
+        Zde = self.Zde
+        az0 = self.az0
+        V = self.V
+
+        # Compute alphadot
+        alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
+        az = V * (alphadot - q) + az0
+
+        # Assemble output vector and return
+        return jnp.array([alpha, q, az])
 
     def prior_logpdf(self, x0):
         """Prior log-density of the initial state and parameters."""
@@ -182,7 +201,7 @@ if __name__ == "__main__":
     rawdata = [np.loadtxt(f.expanduser()) for f in args.datafiles]
     data = [None] * len(rawdata)
     for i, rawseg in enumerate(rawdata):
-        y = jnp.c_[rawseg[:, 12] * d2r, rawseg[:, 7] * d2r]
+        y = jnp.c_[rawseg[:, 12] * d2r, rawseg[:, 7] * d2r, rawseg[:, 3]]
         u = jnp.c_[rawseg[:, 21] * d2r]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
