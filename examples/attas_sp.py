@@ -123,7 +123,7 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
         Mq: float = 0.0
         Mde: float = 0.0
         az0: float = 0.0
-        V: float = 1.0
+        V: float = 0.0
 
     @classmethod
     def param(cls, data=None, rng=None):
