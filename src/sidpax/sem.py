@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import operator
 from typing import Any, Sequence
 
-import hedeut
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp

@@ -1,8 +1,8 @@
 """Special Matrices and Matrix Operations."""
 
 import abc
+import functools
 
-import hedeut
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -11,7 +11,7 @@ import numpy as np
 from jax.typing import ArrayLike
 
 
-@hedeut.jax_vectorize(signature="(n,m)->(p)")
+@functools.partial(jnp.vectorize, signature="(n,m)->(p)")
 def vech(M: ArrayLike) -> jax.Array:
     """Pack the lower triangle of a matrix into a vector, columnwise.
 
@@ -40,7 +40,7 @@ def vech(M: ArrayLike) -> jax.Array:
     return M[jnp.triu_indices_from(M.T)[::-1]]
 
 
-@hedeut.jax_vectorize(signature="(m)->(n,n)")
+@functools.partial(jnp.vectorize, signature="(m)->(n,n)")
 def matl(v: ArrayLike) -> jax.Array:
     """Unpack a vector into a square lower triangular matrix.
 
@@ -133,19 +133,19 @@ def tria_chol(*args) -> jax.Array:
     return jnp.linalg.cholesky(MMT)
 
 
-@hedeut.jax_vectorize(signature="(k,m),(k,n)->(k,k)")
+@functools.partial(jnp.vectorize, signature="(k,m),(k,n)->(k,k)")
 def tria2_qr(m1, m2):
     """Triangularization of two matrices using QR decomposition."""
     return tria_qr(m1, m2)
 
 
-@hedeut.jax_vectorize(signature="(k,m),(k,n)->(k,k)")
+@functools.partial(jnp.vectorize, signature="(k,m),(k,n)->(k,k)")
 def tria2_chol(m1, m2):
     """Triangularization of two matrices using Cholesky decomposition."""
     return tria_chol(m1, m2)
 
 
-@hedeut.jax_vectorize(signature="(n)->(n,n)")
+@functools.partial(jnp.vectorize, signature="(n)->(n,n)")
 def make_diagonal(d):
     """Make a diagonal array from a vector of elements of its main diagonal."""
     return jnp.diag(d)

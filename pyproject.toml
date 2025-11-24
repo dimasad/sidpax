@@ -16,7 +16,6 @@ dependencies = [
   "jax_dataclasses",
   "numpy",
   "scipy",
-  "hedeut",
   "tyro",
   "optax",
 ]
