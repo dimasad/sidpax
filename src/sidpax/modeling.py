@@ -45,8 +45,17 @@ class StateSpaceBase:
         return bound
 
     def prior_logpdf(self, x0):
-        """Prior log-density of the initial state and parameters."""
+        """Prior log-density of the initial state and parameters.
+
+        If not overridden, defaults to an improper uniform prior.
+        """
         return jnp.array(0.0)
+    
+    def free_sim(self, x0, u):
+        """Simulate the system without noise."""
+        scanfun = lambda x, u: (self.f(x, u), [x, self.h(x, u)])
+        carry, (xpath, ypath) = jax.lax.scan(scanfun, x0, u)
+        return xpath, ypath
 
 
 class MVNTransition(StateSpaceBase):
@@ -71,3 +80,15 @@ class MVNMeasurement(StateSpaceBase):
     def meas_logpdf(self, y, x, u):
         """Log-density of a measurement, log p(y_k | x_k, u_k)."""
         return stats.mvn_logpdf(y, self.h(x, u), self.R)
+
+
+class EulerDiscretization(StateSpaceBase):
+    """Mixin class for Euler discretization of continuous-time dynamics."""
+
+    dt: float
+    """Discretization time step."""
+
+    @common.jax_vectorize_method(signature="(x),(u)->(x)")
+    def f(self, x, u):
+        """Discrete-time state transition function."""
+        return x + self.fc(x, u) * self.dt  # Euler's method

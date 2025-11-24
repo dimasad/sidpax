@@ -26,7 +26,6 @@ import sys
 from dataclasses import dataclass, field
 from typing import Literal
 
-import hedeut
 import jax
 import jax.flatten_util
 import jax.numpy as jnp
@@ -36,7 +35,8 @@ import numpy as np
 import tyro
 from scipy import optimize
 
-from sidpax import cli, common, mat, modeling, sem, sparse
+from sidpax import cli, common, mat, sem, sparse
+from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
 
 
 @dataclass
@@ -95,7 +95,7 @@ class CLIArguments:
             raise ValueError("Maximum iterations must be positive.")
 
 
-class DimLatPR(modeling.MVNTransition, modeling.MVNMeasurement):
+class DimLatPR(MVNMeasurement, MVNTransition, EulerDiscretization):
     """Dimensional lateral-directional motion model with 2 outputs."""
 
     nx: int = 2
@@ -134,7 +134,7 @@ class DimLatPR(modeling.MVNTransition, modeling.MVNMeasurement):
         R = mat.LExpDLT.identity(cls.ny)
         return cls.Param(Q=Q, R=R)
 
-    @hedeut.jax_vectorize_method(signature="(x),(u)->(x)")
+    @common.jax_vectorize_method(signature="(x),(u)->(x)")
     def fc(self, x, u):
         """Drift function."""
         # Unpack arguments
@@ -162,10 +162,6 @@ class DimLatPR(modeling.MVNTransition, modeling.MVNMeasurement):
         # Assemble state derivative vector
         xdot = jnp.array([pdot, rdot])
         return xdot
-
-    def f(self, x, u):
-        """Discrete-time state transition function."""
-        return x + self.fc(x, u) * self.dt  # Euler's method
 
     @common.jax_vectorize_method(signature="(x),(u)->(y)")
     def h(self, x, u):

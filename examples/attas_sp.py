@@ -21,13 +21,11 @@ Identification of Aircraft", presented in AIAA SciTech 2025,
 [arXiv:2510.26496](https://arxiv.org/abs/2510.26496).
 """
 
-import functools
 import pathlib
 import sys
 from dataclasses import dataclass, field
 from typing import Literal
 
-import hedeut
 import jax
 import jax.flatten_util
 import jax.numpy as jnp
@@ -37,7 +35,8 @@ import numpy as np
 import tyro
 from scipy import optimize, sparse
 
-from sidpax import cli, common, mat, modeling, sem
+from sidpax import cli, common, mat, sem
+from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
 
 
 @dataclass
@@ -95,7 +94,7 @@ class CLIArguments:
             raise ValueError("Maximum iterations must be positive.")
 
 
-class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
+class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     """Dimensional short-period motion model."""
 
     nx: int = 2
@@ -132,7 +131,7 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
         R = mat.LExpDLT.identity(cls.ny)
         return cls.Param(Q=Q, R=R)
 
-    @hedeut.jax_vectorize_method(signature="(x),(u)->(x)")
+    @common.jax_vectorize_method(signature="(x),(u)->(x)")
     def fc(self, x, u):
         """Drift function."""
         # Unpack arguments
@@ -156,10 +155,6 @@ class DimShortPeriod(modeling.MVNTransition, modeling.MVNMeasurement):
         # Assemble state derivative vector
         xdot = jnp.array([alphadot, qdot])
         return xdot
-
-    def f(self, x, u):
-        """Discrete-time state transition function."""
-        return x + self.fc(x, u) * self.dt  # Euler's method
 
     @common.jax_vectorize_method(signature="(x),(u)->(y)")
     def h(self, x, u):
@@ -211,17 +206,21 @@ if __name__ == "__main__":
     key = jax.random.key(0)
     key, init_key = jax.random.split(key)
 
+    # Create the model, estimator, and initial guess
     model = DimShortPeriod()
     est = sem.Estimator(model)
     param = est.param(dataest[0], init_key)
-    paramvec, unpack = jax.flatten_util.ravel_pytree(param)
-    nparam = len(paramvec)
 
+    # Flatten initial guess pytree
+    paramvec, unpack = jax.flatten_util.ravel_pytree(param)
+
+    # Create optimization functions
     cost = jax.jit(lambda v: -est.elbo(unpack(v), dataest[0]))
     grad = jax.jit(jax.grad(cost))
     elbo_hess = jax.jit(lambda v: est.elbo_hessian(unpack(v), dataest[0]))
     hess = lambda v: -sparse.coo_array(elbo_hess(v))
 
+    # Optimize
     result = optimize.minimize(
         cost,
         paramvec,
@@ -231,8 +230,30 @@ if __name__ == "__main__":
         options=dict(verbose=2, maxiter=args.maxiter),
     )
 
+    # Unpack optimal solution vector into pytree
     paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
     popt = paramopt.p
 
+    # Obtain the optimum model and estimator outputs
     mdlopt = model.bind(paramopt.p)
     yopt = mdlopt.h(paramopt.mu, dataest[0].u)
+    fopt = mdlopt.fc(paramopt.mu, dataest[0].u)
+    xdotopt = jnp.diff(paramopt.mu, axis=0) / model.dt
+    t = np.arange(len(dataest[0])) * model.dt
+
+    # Plot results on screen
+    if args.plot:
+        from matplotlib import pyplot as plt
+
+        for j in range(model.ny):
+            plt.figure()
+            plt.plot(t, dataest[0].y[:, j], ".")
+            plt.plot(t, yopt[:, j], "-")
+            plt.xlabel("Time [s]")
+            plt.ylabel(f"Output {j}")
+        for j in range(model.nx):
+            plt.figure()
+            plt.plot(t[1:], xdotopt[:, j], ".")
+            plt.plot(t[1:], fopt[1:, j], "-")
+            plt.xlabel("Time [s]")
+            plt.ylabel(f"xdot {j}")
