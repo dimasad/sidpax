@@ -17,12 +17,9 @@ cd ThirdParty-HSL
 
 # Extract coinhsl source and create symlink
 tar -xf ../coinhsl-*.tar.gz
-ln -s coinhsl-20??-??-?? coinhsl
+ln -s coinhsl-20??.??.?? coinhsl
 
 # Configure, build, and install
 ./configure
 make
 sudo make install
-
-# Create symlink
-sudo ln -sf /usr/lib/libhsl.so /usr/local/lib/libcoinhsl.so
