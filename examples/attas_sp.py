@@ -251,9 +251,11 @@ if __name__ == "__main__":
             plt.plot(t, yopt[:, j], "-")
             plt.xlabel("Time [s]")
             plt.ylabel(f"Output {j}")
+            plt.title(f"Estimation output {j}")
         for j in range(model.nx):
             plt.figure()
             plt.plot(t[1:], xdotopt[:, j], ".")
             plt.plot(t[1:], fopt[1:, j], "-")
             plt.xlabel("Time [s]")
             plt.ylabel(f"xdot {j}")
+            plt.title(f"Derivative of state {j} path")
