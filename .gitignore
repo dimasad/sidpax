@@ -1,6 +1,9 @@
 # IDE Configuration
 .vscode/
 
+# Third-party code package archives
+.pkgs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

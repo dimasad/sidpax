@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -e  # Exit if any command fails
+
+# Install build dependencies
+sudo apt update
+sudo apt install -y gfortran libblas-dev liblapack-dev libmetis-dev
+
+# Create and temporary build directory and copy coinhsl source files
+tmpdir=$(mktemp -d)
+cp .pkgs/coinhsl-*.tar.gz "$tmpdir"
+cd "$tmpdir"
+
+# Download source
+git clone https://github.com/coin-or-tools/ThirdParty-HSL.git
+cd ThirdParty-HSL
+
+# Extract coinhsl source and create symlink
+tar -xf ../coinhsl-*.tar.gz
+ln -s coinhsl-20??-??-?? coinhsl
+
+# Configure, build, and install
+./configure
+make
+sudo make install
+
+# Create symlink
+sudo ln -sf /usr/lib/libhsl.so /usr/local/lib/libcoinhsl.so
