@@ -236,7 +236,6 @@ if __name__ == "__main__":
         m=0,
         problem_obj=Obj,
     )
-    nlp.add_option("hsllib", "/usr/local/lib/libcoinhsl.so")
     nlp.add_option("linear_solver", "ma57")
     paramvecopt, info = nlp.solve(paramvec)
 

@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e  # Exit if any command fails
 
+echo "🛠️ Installing cyipopt build dependencies..."
+sudo apt update
+sudo apt install coinor-libipopt-dev -y
+
 # Check for existing virtual environment
 if [ -d ".venv" ]; then
     n=1
@@ -24,6 +28,9 @@ source .venv/bin/activate
 
 echo "⬆️  Upgrading pip..."
 python -m pip install --upgrade pip
+
+echo "📦 Installing cyipopt..."
+pip install -U "cyipopt"
 
 echo "📦 Installing the package with dependencies..."
 pip install -e ".[devextra,test]"

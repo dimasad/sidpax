@@ -23,3 +23,7 @@ ln -s coinhsl-20??.??.?? coinhsl
 ./configure
 make
 sudo make install
+
+# Make symlink with default HSLLIB configuration
+# (see https://coin-or.github.io/Ipopt/OPTIONS.html#OPT_hsllib for details)
+sudo ln -sf /usr/local/lib/libcoinhsl.so /usr/lib/libhsl.so
