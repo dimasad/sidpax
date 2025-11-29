@@ -41,3 +41,7 @@ doctest_optionflags = [
   "ELLIPSIS", 
   "IGNORE_EXCEPTION_DETAIL",
 ]
+norecursedirs = [
+  "examples",
+  "scripts",
+]
