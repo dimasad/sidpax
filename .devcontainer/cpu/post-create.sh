@@ -32,4 +32,9 @@ python -m pip install --upgrade pip
 echo "📦 Installing the package with dependencies..."
 pip install -e ".[devextra,test]"
 
+if compgen -G ".pkgs/coinhsl-*.tar.gz" > /dev/null; then
+    echo "📦 HSL package detected, building and installing CoinHSL..."
+    scripts/install-coinhsl
+fi
+
 echo "✅ Dev Container setup complete!"
