@@ -29,9 +29,6 @@ source .venv/bin/activate
 echo "⬆️  Upgrading pip..."
 python -m pip install --upgrade pip
 
-echo "📦 Installing cyipopt..."
-pip install -U "cyipopt"
-
 echo "📦 Installing the package with dependencies..."
 pip install -e ".[devextra,test]"
 

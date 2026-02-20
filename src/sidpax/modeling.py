@@ -15,7 +15,7 @@ from sidpax import common, mat, stats
 
 
 class StateSpaceBase:
-    """Base class for state-space model."""
+    """Base class for discrete-time state-space model."""
 
     nx: int
     """Number of states."""

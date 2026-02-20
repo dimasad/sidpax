@@ -25,6 +25,7 @@ devextra = [
   "ipython",
   "ipdb",
   "matplotlib",
+  "cyipopt @ git+https://github.com/mechmotum/cyipopt@master",
 ]
 test = ["pytest>=8.0", "pytest-cov"]
 
@@ -33,6 +34,9 @@ Repository = "https://github.com/dimasad/sidpax"
 
 [tool.black]
 line-length = 80
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 addopts = "--doctest-modules"

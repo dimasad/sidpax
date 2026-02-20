@@ -21,6 +21,7 @@ Identification of Aircraft", presented in AIAA SciTech 2025,
 [arXiv:2510.26496](https://arxiv.org/abs/2510.26496).
 """
 
+import inspect
 import pathlib
 import sys
 from dataclasses import dataclass, field
@@ -33,7 +34,12 @@ import jax.scipy as jsp
 import jax_dataclasses as jdc
 import numpy as np
 import tyro
-from scipy import optimize
+
+# Use Ipopt if it is available, or fallback to scipy
+try:
+    from cyipopt import minimize_ipopt as minimize
+except ImportError:
+    from scipy.optimize import minimize
 
 from sidpax import cli, common, mat, sem, sparse
 from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
@@ -228,17 +234,60 @@ if __name__ == "__main__":
     grad = jax.jit(jax.grad(cost))
     hess = lambda v: -sparse.coo_array(elbo_hess(v))
 
-    result = optimize.minimize(
+    options = dict(maxiter=args.maxiter)
+    if "ipopt" in inspect.getmodule(minimize).__name__:
+        method = None
+        options["disp"] = 5
+    else:
+        method = "trust-constr"
+        options["verbose"] = 2
+
+    result = minimize(
         cost,
         paramvec,
-        method="trust-constr",
+        method=method,
         jac=grad,
         hess=hess,
-        options=dict(verbose=2, maxiter=args.maxiter),
+        options=options,
     )
 
+    # Unpack optimization result into pytrees
     mergedopt = unpack(jnp.astype(result.x, paramvec.dtype))
     popt = mergedopt[0].p
 
+    # Obtain the optimum model and estimator outputs
     mdlopt = model.bind(popt)
-    yopt = [mdlopt.h(param.mu, d.u) for param, d in zip(mergedopt, dataest)]
+    y = np.concatenate([d.y for d in dataest])
+    u = np.concatenate([d.u for d in dataest])
+    mu = np.concatenate([p.mu for p in mergedopt])
+    yopt = mdlopt.h(mu, u)
+    fopt = mdlopt.fc(mu, u)
+    xdotopt = jnp.diff(mu, axis=0) / model.dt
+    freesim = [
+        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(mergedopt, dataest)
+    ]
+    xsim = np.concatenate([pair[0] for pair in freesim])
+    ysim = np.concatenate([pair[1] for pair in freesim])
+    xdotsim = mdlopt.fc(xsim, u)
+    t = np.arange(len(u)) * model.dt
+
+    # Plot results on screen
+    if args.plot:
+        from matplotlib import pyplot as plt
+
+        for j in range(model.ny):
+            plt.figure()
+            plt.plot(t, y[:, j], ".")
+            plt.plot(t, yopt[:, j], "-")
+            plt.plot(t, ysim[:, j], ":")
+            plt.xlabel("Time [s]")
+            plt.ylabel(f"Output {j}")
+            plt.title(f"Estimation output {j}")
+        for j in range(model.nx):
+            plt.figure()
+            plt.plot(t[1:], xdotopt[:, j], ".")
+            plt.plot(t[1:], fopt[1:, j], "-")
+            plt.plot(t, xdotsim[:, j], ":")
+            plt.xlabel("Time [s]")
+            plt.ylabel(f"xdot {j}")
+            plt.title(f"Derivative of state {j} path")

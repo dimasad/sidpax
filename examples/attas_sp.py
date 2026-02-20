@@ -21,6 +21,7 @@ Identification of Aircraft", presented in AIAA SciTech 2025,
 [arXiv:2510.26496](https://arxiv.org/abs/2510.26496).
 """
 
+import inspect
 import pathlib
 import sys
 from dataclasses import dataclass, field
@@ -34,6 +35,12 @@ import jax_dataclasses as jdc
 import numpy as np
 import tyro
 from scipy import optimize, sparse
+
+# Use Ipopt if it is available, or fallback to scipy
+try:
+    from cyipopt import minimize_ipopt as minimize
+except ImportError:
+    from scipy.optimize import minimize
 
 from sidpax import cli, common, mat, sem
 from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
@@ -220,14 +227,22 @@ if __name__ == "__main__":
     elbo_hess = jax.jit(lambda v: est.elbo_hessian(unpack(v), dataest[0]))
     hess = lambda v: -sparse.coo_array(elbo_hess(v))
 
+    options = dict(maxiter=args.maxiter)
+    if "ipopt" in inspect.getmodule(minimize).__name__:
+        method = None
+        options["disp"] = 5
+    else:
+        method = "trust-constr"
+        options["verbose"] = 2
+
     # Optimize
-    result = optimize.minimize(
+    result = minimize(
         cost,
         paramvec,
-        method="trust-constr",
+        method=method,
         jac=grad,
         hess=hess,
-        options=dict(verbose=2, maxiter=args.maxiter),
+        options=options,
     )
 
     # Unpack optimal solution vector into pytree
@@ -240,6 +255,8 @@ if __name__ == "__main__":
     fopt = mdlopt.fc(paramopt.mu, dataest[0].u)
     xdotopt = jnp.diff(paramopt.mu, axis=0) / model.dt
     t = np.arange(len(dataest[0])) * model.dt
+    xsim, ysim = mdlopt.free_sim(paramopt.mu[0], dataest[0].u)
+    xdotsim = mdlopt.fc(xsim, dataest[0].u)
 
     # Plot results on screen
     if args.plot:
@@ -249,6 +266,7 @@ if __name__ == "__main__":
             plt.figure()
             plt.plot(t, dataest[0].y[:, j], ".")
             plt.plot(t, yopt[:, j], "-")
+            plt.plot(t, ysim[:, j], ":")
             plt.xlabel("Time [s]")
             plt.ylabel(f"Output {j}")
             plt.title(f"Estimation output {j}")
@@ -256,6 +274,7 @@ if __name__ == "__main__":
             plt.figure()
             plt.plot(t[1:], xdotopt[:, j], ".")
             plt.plot(t[1:], fopt[1:, j], "-")
+            plt.plot(t, xdotsim[:, j], ":")
             plt.xlabel("Time [s]")
             plt.ylabel(f"xdot {j}")
             plt.title(f"Derivative of state {j} path")

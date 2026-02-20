@@ -32,9 +32,6 @@ python -m pip install --upgrade pip
 echo "📦 Installing jax with GPU support..."
 pip install -U "jax[cuda12]"
 
-echo "📦 Installing cyipopt..."
-pip install -U "cyipopt"
-
 echo "📦 Installing the package with dependencies..."
 pip install -e ".[devextra,test]"
 
