@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -e  # Exit if any command fails
+
+BASE_URL="https://huggingface.co/datasets/dimasaad/VIRTTAC-Castor-sysid/blob/main"
+
+# Get this script's directory
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+
+
+DATA_DIR="$SCRIPT_DIR/../examples/data"
+
+wget -nc -P "$DATA_DIR" "$BASE_URL/TestPoint_1.mat"
+wget -nc -P "$DATA_DIR" "$BASE_URL/TestPoint_2.mat"
+wget -nc -P "$DATA_DIR" "$BASE_URL/TestPoint_3.mat"
