@@ -2,7 +2,7 @@
 
 set -e  # Exit if any command fails
 
-BASE_URL="https://huggingface.co/datasets/dimasaad/VIRTTAC-Castor-sysid/blob/main"
+BASE_URL="https://huggingface.co/datasets/dimasaad/VIRTTAC-Castor-sysid/resolve/main"
 
 # Get this script's directory
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
