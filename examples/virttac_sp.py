@@ -86,6 +86,7 @@ class CLIArguments:
         if self.maxiter <= 0:
             raise ValueError("Maximum iterations must be positive.")
 
+
 @dataclass
 class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     """Dimensional short-period motion model."""
@@ -99,7 +100,7 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     ny: int = 3
     """Number of outputs."""
 
-    dt: float = 1.0
+    dt: float = 0.04
     """Sampling period."""
 
     @jdc.pytree_dataclass
@@ -176,8 +177,8 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
         # A noninformative Gaussian prior is used for regularization
         param = [getattr(self, f.name) for f in jdc.fields(self.Param)]
         param_vec = jax.flatten_util.ravel_pytree(param)[0]
-        param_prior = jsp.stats.norm.logpdf(param_vec, scale=100).sum()
-        x0_prior = jsp.stats.norm.logpdf(x0, scale=100).sum()
+        param_prior = jsp.stats.norm.logpdf(param_vec, scale=10).sum()
+        x0_prior = jsp.stats.norm.logpdf(x0, scale=10).sum()
         return x0_prior + param_prior
 
 
@@ -186,19 +187,29 @@ if __name__ == "__main__":
 
     # Load Datafiles (all segments)
     d2r = np.pi / 180
+    g0 = 9.80665
     data = [None] * len(args.datafiles)
     for i, f in enumerate(args.datafiles):
         matfile = scipy.io.loadmat(f.expanduser())
         seg_outputs = matfile["VIRTTAC_SimData"]["Outputs"][0, 0][0, 0]
         dt = jnp.diff(seg_outputs["Time"].flatten()[:2])[0]
+        alpha_ADSP1 = seg_outputs["alpha_ADSP1_deg"].flatten() * d2r
+        alpha_ADSP2 = seg_outputs["alpha_ADSP2_deg"].flatten() * d2r
+        alpha_ADSP3 = seg_outputs["alpha_ADSP3_deg"].flatten() * d2r
+        alpha_ADSP4 = seg_outputs["alpha_ADSP4_deg"].flatten() * d2r
+        q_IRU1 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
+        q_IRU2 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
+        q_IRU3 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
+        az_IRU1 = seg_outputs["az_IRU1_g"].flatten() * g0
+        az_IRU2 = seg_outputs["az_IRU2_g"].flatten() * g0
+        de_left = seg_outputs["Elevator_LH_deg"].flatten() * d2r
+        de_right = seg_outputs["Elevator_RH_deg"].flatten() * d2r
         y = jnp.c_[
-            seg_outputs["alpha_ADSP1_deg"].flatten() * d2r,
-            seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r,
-            seg_outputs["az_IRU1_g"].flatten(),
+            (alpha_ADSP1 + alpha_ADSP2 + alpha_ADSP3 + alpha_ADSP4) / 4,
+            (q_IRU1 + q_IRU2 + q_IRU3) / 3,
+            (az_IRU1 + az_IRU2) / 2,
         ]
-        de_left = seg_outputs["Elevator_LH_deg"]
-        de_right = seg_outputs["Elevator_RH_deg"]
-        u = jnp.c_[(de_left + de_right).flatten() * d2r / 2,]
+        u = jnp.c_[(de_left + de_right) / 2]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
     dataval = data[-1]
