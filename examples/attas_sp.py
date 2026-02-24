@@ -120,14 +120,14 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     class Param:
         Q: mat.PositiveDefiniteMatrix
         R: mat.PositiveDefiniteMatrix
-        Z0: float = 0.0
         Za: float = 0.0
         Zq: float = 0.0
         Zde: float = 0.0
-        M0: float = 0.0
         Ma: float = 0.0
         Mq: float = 0.0
         Mde: float = 0.0
+        alpha0: float = 0.0
+        q0: float = 0.0
         az0: float = 0.0
         V: float = 0.0
 
@@ -146,18 +146,16 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
         (dele,) = u
 
         # Unpack model parameters
-        Z0 = self.Z0
         Za = self.Za
         Zq = self.Zq
         Zde = self.Zde
-        M0 = self.M0
         Ma = self.Ma
         Mq = self.Mq
         Mde = self.Mde
 
         # Compute state derivatives
-        alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
-        qdot = M0 + Ma * alpha + Mq * q + Mde * dele
+        alphadot = Za * alpha + (Zq + 1) * q + Zde * dele
+        qdot = Ma * alpha + Mq * q + Mde * dele
 
         # Assemble state derivative vector
         xdot = jnp.array([alphadot, qdot])
@@ -171,19 +169,20 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
         (dele,) = u
 
         # Unpack model parameters
-        Z0 = self.Z0
         Za = self.Za
         Zq = self.Zq
         Zde = self.Zde
+        alpha0 = self.alpha0
+        q0 = self.q0
         az0 = self.az0
         V = self.V
 
         # Compute alphadot
-        alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
-        az = V * (alphadot - q) + az0
+        alphadot = Za * alpha + (Zq + 1) * q + Zde * dele
+        az = V * (alphadot - q)
 
         # Assemble output vector and return
-        return jnp.array([alpha, q, az])
+        return jnp.array([alpha + alpha0, q + q0, az + az0])
 
     def prior_logpdf(self, x0):
         """Prior log-density of the initial state and parameters."""
@@ -231,6 +230,7 @@ if __name__ == "__main__":
     if "ipopt" in inspect.getmodule(minimize).__name__:
         method = None
         options["disp"] = 5
+        options["linear_solver"] = "ma57"
     else:
         method = "trust-constr"
         options["verbose"] = 2
