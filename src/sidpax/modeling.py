@@ -8,6 +8,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import jax.scipy as jsp
 import jax_dataclasses as jdc
 import numpy as np
 
@@ -80,6 +81,25 @@ class MVNMeasurement(StateSpaceBase):
     def meas_logpdf(self, y, x, u):
         """Log-density of a measurement, log p(y_k | x_k, u_k)."""
         return stats.mvn_logpdf(y, self.h(x, u), self.R)
+
+
+class NormalMeasurements(StateSpaceBase):
+    """Independent Normal measurement model."""
+
+    y_log_std: jnp.array
+    """Logarithm of the measurement scale."""
+
+    @common.jax_vectorize_method(signature="(y),(x),(u)->()")
+    def meas_logpdf(self, y, x, u):
+        """Log-density of a measurement, log p(y_k | x_k, u_k)."""
+        missing = jnp.isnan(y)
+        y_maked = jnp.where(missing, 0.0, y)
+        logpdf = jsp.stats.norm.logpdf(y_maked, self.h(x, u), self.y_std)
+        return ~missing @ logpdf
+    
+    @property
+    def y_std(self):
+        return jnp.exp(self.y_log_std)
 
 
 class EulerDiscretization(StateSpaceBase):
