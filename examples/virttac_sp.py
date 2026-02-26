@@ -28,7 +28,11 @@ except ImportError:
     from scipy.optimize import minimize
 
 from sidpax import cli, common, mat, sem, sparse
-from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
+from sidpax.modeling import (
+    EulerDiscretization,
+    MVNTransition,
+    NormalMeasurements,
+)
 
 
 @dataclass
@@ -48,9 +52,9 @@ class CLIArguments:
     def _datafiles_factory():
         data_dir = pathlib.Path(sys.argv[0]).parent / "data"
         return [
-            data_dir / "TestPoint_1.mat",
-            data_dir / "TestPoint_2.mat",
-            data_dir / "TestPoint_3.mat",
+            data_dir / "TestPoint_241.mat",
+            data_dir / "TestPoint_242.mat",
+            data_dir / "TestPoint_243.mat",
         ]
 
     @staticmethod
@@ -88,7 +92,7 @@ class CLIArguments:
 
 
 @dataclass
-class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
+class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
     """Dimensional short-period motion model."""
 
     nx: int = 2
@@ -97,24 +101,24 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     nu: int = 1
     """Number of exogenous inputs."""
 
-    ny: int = 3
+    ny: int = 2
     """Number of outputs."""
 
-    dt: float = 0.04
+    dt: float = 0.01
     """Sampling period."""
 
     @jdc.pytree_dataclass
     class Param:
         Q: mat.PositiveDefiniteMatrix
-        R: mat.PositiveDefiniteMatrix
-        Z0: float = 0.0
+        y_log_std: jnp.array
         Za: float = 0.0
         Zq: float = 0.0
         Zde: float = 0.0
-        M0: float = 0.0
         Ma: float = 0.0
         Mq: float = 0.0
         Mde: float = 0.0
+        alpha0: float = 0.0
+        q0: float = 0.0
         az0: float = 0.0
         V: float = 0.0
 
@@ -122,8 +126,8 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
     def param(cls, data=None, rng=None):
         """Initialize the parameter structure."""
         Q = mat.LExpDLT.identity(cls.nx)
-        R = mat.LExpDLT.identity(cls.ny)
-        return cls.Param(Q=Q, R=R)
+        y_log_std = jnp.zeros(cls.ny)
+        return cls.Param(Q=Q, y_log_std=y_log_std)
 
     @common.jax_vectorize_method(signature="(x),(u)->(x)")
     def fc(self, x, u):
@@ -133,18 +137,16 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
         (dele,) = u
 
         # Unpack model parameters
-        Z0 = self.Z0
         Za = self.Za
         Zq = self.Zq
         Zde = self.Zde
-        M0 = self.M0
         Ma = self.Ma
         Mq = self.Mq
         Mde = self.Mde
 
         # Compute state derivatives
-        alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
-        qdot = M0 + Ma * alpha + Mq * q + Mde * dele
+        alphadot = Za * alpha + (Zq + 1) * q + Zde * dele
+        qdot = Ma * alpha + Mq * q + Mde * dele
 
         # Assemble state derivative vector
         xdot = jnp.array([alphadot, qdot])
@@ -158,19 +160,20 @@ class DimShortPeriod(MVNMeasurement, MVNTransition, EulerDiscretization):
         (dele,) = u
 
         # Unpack model parameters
-        Z0 = self.Z0
         Za = self.Za
         Zq = self.Zq
         Zde = self.Zde
+        alpha0 = self.alpha0
+        q0 = self.q0
         az0 = self.az0
         V = self.V
 
         # Compute alphadot
-        alphadot = Z0 + Za * alpha + (Zq + 1) * q + Zde * dele
-        az = V * (alphadot - q) + az0
+        alphadot = Za * alpha + (Zq + 1) * q + Zde * dele
+        az = V * (alphadot - q)
 
         # Assemble output vector and return
-        return jnp.array([alpha, q, az])
+        return jnp.array([alpha + alpha0, q + q0])
 
     def prior_logpdf(self, x0):
         """Prior log-density of the initial state and parameters."""
@@ -204,30 +207,48 @@ if __name__ == "__main__":
         az_IRU2 = seg_outputs["az_IRU2_g"].flatten() * g0
         de_left = seg_outputs["Elevator_LH_deg"].flatten() * d2r
         de_right = seg_outputs["Elevator_RH_deg"].flatten() * d2r
-        y = jnp.c_[
-            (alpha_ADSP1 + alpha_ADSP2 + alpha_ADSP3 + alpha_ADSP4) / 4,
-            (q_IRU1 + q_IRU2 + q_IRU3) / 3,
-            (az_IRU1 + az_IRU2) / 2,
-        ]
+        alpha = (alpha_ADSP1 + alpha_ADSP2 + alpha_ADSP3 + alpha_ADSP4) / 4
+        q = (q_IRU1 + q_IRU2 + q_IRU3) / 3
+        az = (az_IRU1 + az_IRU2) / 2
+        alpha[1::3] = np.nan
+        alpha[2::3] = np.nan
+        q[1::2] = np.nan
+        az[1::2] = np.nan
+        y = jnp.c_[alpha, q]
         u = jnp.c_[(de_left + de_right) / 2]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
     dataval = data[-1]
 
+    # Determine the measurement resolution
+    y_std_min = np.r_[7.4e-4, 1.9e-5]
+
     # Create the PRNG keys
     key = jax.random.key(0)
     key, init_key = jax.random.split(key)
 
+    # Create the model and estimator classes
     model = DimShortPeriod(dt=dt)
     est = sem.Estimator(model)
+
+    # Merge the parameters of the datasets
     params = [est.param(d, init_key) for d in dataest]
     is_unique = sem.Estimator.Param(
         p=True, mu=False, Sigma_cond=False, S_cross=False
     )
     merged = sem.merge_trees(is_unique, *params)
     merged_ind = sparse.pytree_ind(merged)
+
+    # Pack the estimation parameters into a single vector
     paramvec, unpack = jax.flatten_util.ravel_pytree(merged)
     nparam = len(paramvec)
+
+    # Create the problem bounds
+    paramvec_high = jnp.ones_like(paramvec) * jnp.inf
+    with jdc.copy_and_mutate(unpack(-paramvec_high)) as param_low:
+        param_low[0].p.y_log_std = jnp.log(y_std_min)
+    paramvec_low = jax.flatten_util.ravel_pytree(param_low)[0]
+    bounds = jnp.c_[paramvec_low, paramvec_high]
 
     @jax.jit
     def cost(paramvec):
@@ -258,6 +279,7 @@ if __name__ == "__main__":
     result = minimize(
         cost,
         paramvec,
+        bounds=bounds,
         method=method,
         jac=grad,
         hess=hess,
