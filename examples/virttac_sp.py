@@ -101,7 +101,7 @@ class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
     nu: int = 1
     """Number of exogenous inputs."""
 
-    ny: int = 2
+    ny: int = 7
     """Number of outputs."""
 
     dt: float = 0.01
@@ -111,15 +111,13 @@ class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
     class Param:
         Q: mat.PositiveDefiniteMatrix
         y_log_std: jnp.array
+        y_bias: jnp.array
         Za: float = 0.0
         Zq: float = 0.0
         Zde: float = 0.0
         Ma: float = 0.0
         Mq: float = 0.0
         Mde: float = 0.0
-        alpha0: float = 0.0
-        q0: float = 0.0
-        az0: float = 0.0
         V: float = 0.0
 
     @classmethod
@@ -127,7 +125,8 @@ class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
         """Initialize the parameter structure."""
         Q = mat.LExpDLT.identity(cls.nx)
         y_log_std = jnp.zeros(cls.ny)
-        return cls.Param(Q=Q, y_log_std=y_log_std)
+        y_bias = jnp.zeros(cls.ny)
+        return cls.Param(Q=Q, y_log_std=y_log_std, y_bias=y_bias)
 
     @common.jax_vectorize_method(signature="(x),(u)->(x)")
     def fc(self, x, u):
@@ -163,9 +162,6 @@ class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
         Za = self.Za
         Zq = self.Zq
         Zde = self.Zde
-        alpha0 = self.alpha0
-        q0 = self.q0
-        az0 = self.az0
         V = self.V
 
         # Compute alphadot
@@ -173,7 +169,7 @@ class DimShortPeriod(NormalMeasurements, MVNTransition, EulerDiscretization):
         az = V * (alphadot - q)
 
         # Assemble output vector and return
-        return jnp.array([alpha + alpha0, q + q0])
+        return jnp.array([alpha] * 4 + [q] * 3) + self.y_bias
 
     def prior_logpdf(self, x0):
         """Prior log-density of the initial state and parameters."""
@@ -194,34 +190,25 @@ if __name__ == "__main__":
     data = [None] * len(args.datafiles)
     for i, f in enumerate(args.datafiles):
         matfile = scipy.io.loadmat(f.expanduser())
-        seg_outputs = matfile["VIRTTAC_SimData"]["Outputs"][0, 0][0, 0]
-        dt = jnp.diff(seg_outputs["Time"].flatten()[:2])[0]
-        alpha_ADSP1 = seg_outputs["alpha_ADSP1_deg"].flatten() * d2r
-        alpha_ADSP2 = seg_outputs["alpha_ADSP2_deg"].flatten() * d2r
-        alpha_ADSP3 = seg_outputs["alpha_ADSP3_deg"].flatten() * d2r
-        alpha_ADSP4 = seg_outputs["alpha_ADSP4_deg"].flatten() * d2r
-        q_IRU1 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
-        q_IRU2 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
-        q_IRU3 = seg_outputs["q_IRU1_deg_per_s"].flatten() * d2r
-        az_IRU1 = seg_outputs["az_IRU1_g"].flatten() * g0
-        az_IRU2 = seg_outputs["az_IRU2_g"].flatten() * g0
-        de_left = seg_outputs["Elevator_LH_deg"].flatten() * d2r
-        de_right = seg_outputs["Elevator_RH_deg"].flatten() * d2r
-        alpha = (alpha_ADSP1 + alpha_ADSP2 + alpha_ADSP3 + alpha_ADSP4) / 4
-        q = (q_IRU1 + q_IRU2 + q_IRU3) / 3
-        az = (az_IRU1 + az_IRU2) / 2
-        alpha[1::3] = np.nan
-        alpha[2::3] = np.nan
-        q[1::2] = np.nan
-        az[1::2] = np.nan
-        y = jnp.c_[alpha, q]
+        out = matfile["VIRTTAC_SimData"]["Outputs"][0, 0][0, 0]
+        dt = jnp.diff(out["Time"].flatten()[:2])[0]
+        de_left = out["Elevator_LH_deg"] * d2r
+        de_right = out["Elevator_RH_deg"] * d2r
+        alpha = [out[f"alpha_ADSP{i+1}_deg"] * d2r for i in range(4)]
+        q = [out[f"q_IRU{i+1}_deg_per_s"] * d2r for i in range(3)]
+        az = [out[f"az_IRU{i+1}_g"] * d2r for i in range(2)]
+        for alpha_i in alpha:
+            alpha_i[1::3] = np.nan
+            alpha_i[2::3] = np.nan
+        for q_i in q:
+            q_i[1::2] = np.nan
+        for az_i in az:
+            az_i[1::2] = np.nan
+        y = jnp.c_[*alpha, *q]
         u = jnp.c_[(de_left + de_right) / 2]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
     dataval = data[-1]
-
-    # Determine the measurement resolution
-    y_std_min = np.r_[7.4e-4, 1.9e-5]
 
     # Create the PRNG keys
     key = jax.random.key(0)
@@ -244,10 +231,8 @@ if __name__ == "__main__":
     nparam = len(paramvec)
 
     # Create the problem bounds
+    paramvec_low = -jnp.ones_like(paramvec) * jnp.inf
     paramvec_high = jnp.ones_like(paramvec) * jnp.inf
-    with jdc.copy_and_mutate(unpack(-paramvec_high)) as param_low:
-        param_low[0].p.y_log_std = jnp.log(y_std_min)
-    paramvec_low = jax.flatten_util.ravel_pytree(param_low)[0]
     bounds = jnp.c_[paramvec_low, paramvec_high]
 
     @jax.jit
