@@ -42,7 +42,7 @@ try:
 except ImportError:
     from scipy.optimize import minimize
 
-from sidpax import cli, common, mat, sem
+from sidpax import cli, common, mat, sem, sparse
 from sidpax.modeling import EulerDiscretization, MVNMeasurement, MVNTransition
 
 
@@ -215,15 +215,30 @@ if __name__ == "__main__":
     # Create the model, estimator, and initial guess
     model = DimShortPeriod()
     est = sem.Estimator(model)
-    param = est.param(dataest[0], init_key)
+    params = [est.param(d, init_key) for d in dataest]
+    is_unique = sem.Estimator.Param(
+        p=True, mu=False, Sigma_cond=False, S_cross=False
+    )
+    merged = sem.merge_trees(is_unique, *params)
+    merged_ind = sparse.pytree_ind(merged)
+    paramvec, unpack = jax.flatten_util.ravel_pytree(merged)
+    nparam = len(paramvec)
 
-    # Flatten initial guess pytree
-    paramvec, unpack = jax.flatten_util.ravel_pytree(param)
+    @jax.jit
+    def cost(paramvec):
+        merged = unpack(paramvec)
+        return sum(-est.elbo(p, d) for p, d in zip(merged, dataest))
 
-    # Create optimization functions
-    cost = jax.jit(lambda v: -est.elbo(unpack(v), dataest[0]))
+    @jax.jit
+    def elbo_hess(paramvec):
+        merged = unpack(paramvec)
+        coo = [
+            est.elbo_hessian(p, d, i)
+            for p, d, i in zip(merged, dataest, merged_ind)
+        ]
+        return sparse.concatenate_coo(*coo)
+
     grad = jax.jit(jax.grad(cost))
-    elbo_hess = jax.jit(lambda v: est.elbo_hessian(unpack(v), dataest[0]))
     hess = lambda v: -sparse.coo_array(elbo_hess(v))
 
     options = dict(maxiter=args.maxiter)
@@ -235,7 +250,6 @@ if __name__ == "__main__":
         method = "trust-constr"
         options["verbose"] = 2
 
-    # Optimize
     result = minimize(
         cost,
         paramvec,
@@ -245,18 +259,25 @@ if __name__ == "__main__":
         options=options,
     )
 
-    # Unpack optimal solution vector into pytree
-    paramopt = unpack(jnp.astype(result.x, paramvec.dtype))
-    popt = paramopt.p
+    # Unpack optimization result into pytrees
+    mergedopt = unpack(jnp.astype(result.x, paramvec.dtype))
+    popt = mergedopt[0].p
 
     # Obtain the optimum model and estimator outputs
-    mdlopt = model.bind(paramopt.p)
-    yopt = mdlopt.h(paramopt.mu, dataest[0].u)
-    fopt = mdlopt.fc(paramopt.mu, dataest[0].u)
-    xdotopt = jnp.diff(paramopt.mu, axis=0) / model.dt
-    t = np.arange(len(dataest[0])) * model.dt
-    xsim, ysim = mdlopt.free_sim(paramopt.mu[0], dataest[0].u)
-    xdotsim = mdlopt.fc(xsim, dataest[0].u)
+    mdlopt = model.bind(popt)
+    y = np.concatenate([d.y for d in dataest])
+    u = np.concatenate([d.u for d in dataest])
+    mu = np.concatenate([p.mu for p in mergedopt])
+    yopt = mdlopt.h(mu, u)
+    fopt = mdlopt.fc(mu, u)
+    xdotopt = jnp.diff(mu, axis=0) / model.dt
+    freesim = [
+        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(mergedopt, dataest)
+    ]
+    xsim = np.concatenate([pair[0] for pair in freesim])
+    ysim = np.concatenate([pair[1] for pair in freesim])
+    xdotsim = mdlopt.fc(xsim, u)
+    t = np.arange(len(u)) * model.dt
 
     # Plot results on screen
     if args.plot:
@@ -264,7 +285,7 @@ if __name__ == "__main__":
 
         for j in range(model.ny):
             plt.figure()
-            plt.plot(t, dataest[0].y[:, j], ".")
+            plt.plot(t, y[:, j], ".")
             plt.plot(t, yopt[:, j], "-")
             plt.plot(t, ysim[:, j], ":")
             plt.xlabel("Time [s]")
