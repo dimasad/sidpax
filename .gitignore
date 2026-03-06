@@ -4,6 +4,9 @@
 # Third-party code package archives
 .pkgs/
 
+# General folder not tracked by version control
+untracked/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
