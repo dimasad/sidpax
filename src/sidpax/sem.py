@@ -1,6 +1,7 @@
 """Smoother-Error Method."""
 
-from dataclasses import dataclass
+import collections
+from dataclasses import dataclass, InitVar
 import operator
 from typing import Any, Sequence
 
@@ -190,6 +191,28 @@ class Estimator:
         return x_samples
 
 
+@dataclass
+class MultiSegmentProblem:
+    data: list[Data]
+    estimators: list[Estimator]
+    is_unique: Estimator.Param = None
+
+    def __post_init__(self):
+        if isinstance(self.estimators, Estimator):
+            self.estimators = len(self.data) * [self.estimators]
+        if self.is_unique is None:
+            self.is_unique = Estimator.Param(
+                p=True, mu=False, S_cross=False, Sigma_cond=False
+            )
+
+    def param(self, rng=None):
+        unmerged = [
+            e.params(d, rng) for e, d in zip(self.estimators, self.data)
+        ]
+        return merge_trees(self.is_unique, *unmerged)
+    
+
+
 @jdc.pytree_dataclass
 class MergedPyTree:
     """Sequence of pytrees split into unique and replicated leaves and subtrees.
@@ -212,11 +235,11 @@ class MergedPyTree:
         return jax.tree.map(
             leaf_where, self.is_unique, self.unique, self.replicated[index]
         )
-    
+
     def __len__(self):
         """Number of merged trees."""
         return len(self.replicated)
-    
+
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
@@ -263,14 +286,14 @@ def merge_trees(is_unique, *trees) -> MergedPyTree:
     is_unique : pytree with `bool` or `jax.Array` of `bool` as leaves.
 
     *trees : sequence of one or more pytrees
-        The trees must have same structure as `is_unique` or have it as a 
+        The trees must have same structure as `is_unique` or have it as a
         prefix.
 
     Returns
     -------
     merged : MergedPyTree
         Dataclass reprenting the merging, with the unique taken from `trees[0]`.
-    
+
     Examples
     --------
     >>> from sidpax.sem import merge_trees
@@ -298,7 +321,7 @@ def merge_trees(is_unique, *trees) -> MergedPyTree:
     """
     if len(trees) == 0:
         raise TypeError("At least one tree required.")
-    
+
     is_unique_f = pytree_asfloat(is_unique)
     unique = jax.tree.map(leaf_select, is_unique_f, trees[0])
     replicated = [jax.tree.map(leaf_select_not, is_unique_f, t) for t in trees]
