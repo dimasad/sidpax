@@ -1,15 +1,12 @@
 """Smoother-Error Method."""
 
-import collections
-from dataclasses import dataclass, InitVar
-import operator
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsp
 import jax_dataclasses as jdc
-from jax.flatten_util import ravel_pytree
+import scipy.sparse
 
 from sidpax.tree import merge_trees
 
@@ -32,7 +29,7 @@ class Data:
 
 
 @dataclass
-class Estimator:
+class SegmentProblem:
 
     model: Any
     """Underlying dynamical system model."""
@@ -194,25 +191,22 @@ class Estimator:
 
 
 @dataclass
-class MultiSegmentProblem:
+class Estimator:
     data: list[Data]
-    estimators: list[Estimator]
-    is_unique: Estimator.Param = None
-
-    def __post_init__(self):
-        if isinstance(self.estimators, Estimator):
-            self.estimators = len(self.data) * [self.estimators]
-        if self.is_unique is None:
-            self.is_unique = Estimator.Param(
-                p=True, mu=False, S_cross=False, Sigma_cond=False
-            )
+    subproblems: SegmentProblem | list[SegmentProblem]
+    is_unique: SegmentProblem.Param = SegmentProblem.Param(
+        p=True, mu=False, S_cross=False, Sigma_cond=False
+    )
+    fix_p: bool = False
 
     def param(self, rng=None):
-        unmerged = [
-            e.params(d, rng) for e, d in zip(self.estimators, self.data)
+        param_list = [
+            p.param(d, rng) for p, d in zip(self._subproblems, self.data)
         ]
-        return merge_trees(self.is_unique, *unmerged)
-    
+        if self.fix_p:
+            param_list = [jdc.replace(param, p={}) for param in param_list]
+        return merge_trees(self.is_unique, *param_list)
+
     @property
     def _subproblems(self) -> list[SegmentProblem]:
         """A list with the subproblems."""
@@ -220,8 +214,34 @@ class MultiSegmentProblem:
             return self.subproblems
         else:
             return [self.subproblems] * len(self.data)
-        
-    def cost(self, param):
-        unmerged = None
 
+    def cost(self, paramvec):
+        params = self.unpack(paramvec)
+        cost = 0.0
+        for prob, param, data in zip(self._subproblems, params, self.data):
+            cost = cost - prob.elbo(param, data)
+        return cost
 
+    def grad(self, paramvec):
+        return jax.grad(self.cost)(paramvec)
+
+    @property
+    def sparse_hessian_fun(self):
+        hessian_coo = jax.jit(self.hessian_coo)
+        return lambda v: scipy.sparse.coo_array(hessian_coo(v))
+
+    def hessian_coo(self, paramvec):
+        params = self.unpack(paramvec)
+        inds = sparse.pytree_ind(params)
+        coo_list = [
+            prob.elbo_hessian(p, d, i)
+            for prob, p, d, i in zip(self._subproblems, params, self.data, inds)
+        ]
+        elbo_coo = sparse.concatenate_coo(*coo_list)
+        cost_coo = -elbo_coo[0], elbo_coo[1]
+        return cost_coo
+
+    def unpack(self, paramvec):
+        rng = jax.random.key(0)
+        unpack = jax.flatten_util.ravel_pytree(self.param(rng))[1]
+        return unpack(paramvec)

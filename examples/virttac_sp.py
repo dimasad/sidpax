@@ -218,14 +218,14 @@ if __name__ == "__main__":
 
     # Create the model and estimator classes
     model = DimShortPeriod(dt=dt)
-    est = sem.Estimator(model)
+    est = sem.SegmentProblem(model)
 
     # Merge the parameters of the datasets
     params = [est.param(d, init_key) for d in dataest]
-    is_unique = sem.Estimator.Param(
+    is_unique = sem.SegmentProblem.Param(
         p=True, mu=False, Sigma_cond=False, S_cross=False
     )
-    merged = sem.merge_trees(is_unique, *params)
+    merged = sidpax.tree.merge_trees(is_unique, *params)
     merged_ind = sparse.pytree_ind(merged)
 
     # Pack the estimation parameters into a single vector

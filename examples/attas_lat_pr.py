@@ -208,33 +208,12 @@ if __name__ == "__main__":
     key = jax.random.key(0)
     key, init_key = jax.random.split(key)
 
+    # Create model, problem, and estimator
     model = DimLatPR()
-    est = sem.Estimator(model)
-    params = [est.param(d, init_key) for d in dataest]
-    is_unique = sem.Estimator.Param(
-        p=True, mu=False, Sigma_cond=False, S_cross=False
-    )
-    merged = sem.merge_trees(is_unique, *params)
-    merged_ind = sparse.pytree_ind(merged)
-    paramvec, unpack = jax.flatten_util.ravel_pytree(merged)
-    nparam = len(paramvec)
-
-    @jax.jit
-    def cost(paramvec):
-        merged = unpack(paramvec)
-        return sum(-est.elbo(p, d) for p, d in zip(merged, dataest))
-
-    @jax.jit
-    def elbo_hess(paramvec):
-        merged = unpack(paramvec)
-        coo = [
-            est.elbo_hessian(p, d, i)
-            for p, d, i in zip(merged, dataest, merged_ind)
-        ]
-        return sparse.concatenate_coo(*coo)
-
-    grad = jax.jit(jax.grad(cost))
-    hess = lambda v: -sparse.coo_array(elbo_hess(v))
+    prob = sem.SegmentProblem(model)
+    est = sem.Estimator(dataest, prob)
+    params = est.param(init_key)
+    paramvec, unpack = jax.flatten_util.ravel_pytree(params)
 
     options = dict(maxiter=args.maxiter)
     if "ipopt" in inspect.getmodule(minimize).__name__:
@@ -245,28 +224,28 @@ if __name__ == "__main__":
         options["verbose"] = 2
 
     result = minimize(
-        cost,
+        jax.jit(est.cost),
         paramvec,
         method=method,
-        jac=grad,
-        hess=hess,
+        jac=jax.jit(est.grad),
+        hess=est.sparse_hessian_fun,
         options=options,
     )
 
     # Unpack optimization result into pytrees
-    mergedopt = unpack(jnp.astype(result.x, paramvec.dtype))
-    popt = mergedopt[0].p
+    paramsopt = unpack(jnp.astype(result.x, paramvec.dtype))
+    popt = paramsopt[0].p
 
     # Obtain the optimum model and estimator outputs
     mdlopt = model.bind(popt)
     y = np.concatenate([d.y for d in dataest])
     u = np.concatenate([d.u for d in dataest])
-    mu = np.concatenate([p.mu for p in mergedopt])
+    mu = np.concatenate([p.mu for p in paramsopt])
     yopt = mdlopt.h(mu, u)
     fopt = mdlopt.fc(mu, u)
     xdotopt = jnp.diff(mu, axis=0) / model.dt
     freesim = [
-        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(mergedopt, dataest)
+        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(paramsopt, dataest)
     ]
     xsim = np.concatenate([pair[0] for pair in freesim])
     ysim = np.concatenate([pair[1] for pair in freesim])

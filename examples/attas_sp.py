@@ -216,12 +216,12 @@ if __name__ == "__main__":
 
     # Create the model, estimator, and initial guess
     model = DimShortPeriod()
-    est = sem.Estimator(model)
+    est = sem.SegmentProblem(model)
     params = [est.param(d, init_key) for d in dataest]
-    is_unique = sem.Estimator.Param(
+    is_unique = sem.SegmentProblem.Param(
         p=True, mu=False, Sigma_cond=False, S_cross=False
     )
-    merged = sem.merge_trees(is_unique, *params)
+    merged = sidpax.tree.merge_trees(is_unique, *params)
     merged_ind = sparse.pytree_ind(merged)
     paramvec, unpack = jax.flatten_util.ravel_pytree(merged)
     nparam = len(paramvec)
