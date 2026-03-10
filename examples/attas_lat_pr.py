@@ -35,6 +35,8 @@ import jax_dataclasses as jdc
 import numpy as np
 import tyro
 
+import sidpax.tree
+
 # Use Ipopt if it is available, or fallback to scipy
 try:
     from cyipopt import minimize_ipopt as minimize
