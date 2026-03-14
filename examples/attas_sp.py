@@ -208,7 +208,7 @@ if __name__ == "__main__":
         u = jnp.c_[rawseg[:, 21] * d2r]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
-    dataval = data[-1]
+    dataval = data[-1:]
 
     # Create the PRNG keys
     key = jax.random.key(0)
@@ -216,33 +216,12 @@ if __name__ == "__main__":
 
     # Create the model, estimator, and initial guess
     model = DimShortPeriod()
-    est = sem.SegmentProblem(model)
-    params = [est.param(d, init_key) for d in dataest]
-    is_unique = sem.SegmentProblem.Param(
-        p=True, mu=False, Sigma_cond=False, S_cross=False
-    )
-    merged = sidpax.tree.merge_trees(is_unique, *params)
-    merged_ind = sparse.pytree_ind(merged)
-    paramvec, unpack = jax.flatten_util.ravel_pytree(merged)
-    nparam = len(paramvec)
+    prob = sem.SegmentProblem(model)
+    est = sem.Estimator(dataest, prob)
+    params0 = est.param(init_key)
+    paramvec0, unpack = jax.flatten_util.ravel_pytree(params0)
 
-    @jax.jit
-    def cost(paramvec):
-        merged = unpack(paramvec)
-        return sum(-est.elbo(p, d) for p, d in zip(merged, dataest))
-
-    @jax.jit
-    def elbo_hess(paramvec):
-        merged = unpack(paramvec)
-        coo = [
-            est.elbo_hessian(p, d, i)
-            for p, d, i in zip(merged, dataest, merged_ind)
-        ]
-        return sparse.concatenate_coo(*coo)
-
-    grad = jax.jit(jax.grad(cost))
-    hess = lambda v: -sparse.coo_array(elbo_hess(v))
-
+    # Get the optimization options
     options = dict(maxiter=args.maxiter)
     if "ipopt" in inspect.getmodule(minimize).__name__:
         method = None
@@ -252,29 +231,49 @@ if __name__ == "__main__":
         method = "trust-constr"
         options["verbose"] = 2
 
-    result = minimize(
-        cost,
-        paramvec,
+    # Optimize
+    est_result = minimize(
+        jax.jit(est.cost),
+        paramvec0,
         method=method,
-        jac=grad,
-        hess=hess,
+        jac=jax.jit(est.grad),
+        hess=est.sparse_hessian_fun,
         options=options,
     )
 
     # Unpack optimization result into pytrees
-    mergedopt = unpack(jnp.astype(result.x, paramvec.dtype))
-    popt = mergedopt[0].p
+    est_params = unpack(jnp.astype(est_result.x, paramvec0.dtype))
+    p = est_params[0].p
+    mdlopt = model.bind(p)
+
+    # Validate on a different dataset
+    val = sem.Estimator(dataval, sem.SegmentProblem(mdlopt), fix_p=True)
+    val_params0 = val.param(init_key)
+    val_paramvec0, val_unpack = jax.flatten_util.ravel_pytree(val_params0)
+    val_result = minimize(
+        jax.jit(val.cost),
+        val_paramvec0,
+        method=method,
+        jac=jax.jit(val.grad),
+        hess=val.sparse_hessian_fun,
+        options=options,
+    )
+
+    # Unpack validation result into pytrees
+    val_params = val_unpack(jnp.astype(val_result.x, val_paramvec0.dtype))
+
+    # Merge validation and estimation parameters
+    params = list(est_params) + list(val_params)
 
     # Obtain the optimum model and estimator outputs
-    mdlopt = model.bind(popt)
-    y = np.concatenate([d.y for d in dataest])
-    u = np.concatenate([d.u for d in dataest])
-    mu = np.concatenate([p.mu for p in mergedopt])
+    y = np.concatenate([d.y for d in data])
+    u = np.concatenate([d.u for d in data])
+    mu = np.concatenate([p.mu for p in params])
     yopt = mdlopt.h(mu, u)
     fopt = mdlopt.fc(mu, u)
     xdotopt = jnp.diff(mu, axis=0) / model.dt
     freesim = [
-        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(mergedopt, dataest)
+        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(params, data)
     ]
     xsim = np.concatenate([pair[0] for pair in freesim])
     ysim = np.concatenate([pair[1] for pair in freesim])
