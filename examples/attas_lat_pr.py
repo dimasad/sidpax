@@ -202,7 +202,7 @@ if __name__ == "__main__":
         ]
         data[i] = sem.Data(y, u)
     dataest = data[:-1]
-    dataval = data[-1]
+    dataval = data[-1:]
 
     # Create the PRNG keys
     key = jax.random.key(0)
@@ -212,20 +212,23 @@ if __name__ == "__main__":
     model = DimLatPR()
     prob = sem.SegmentProblem(model)
     est = sem.Estimator(dataest, prob)
-    params = est.param(init_key)
-    paramvec, unpack = jax.flatten_util.ravel_pytree(params)
+    params0 = est.param(init_key)
+    paramvec0, unpack = jax.flatten_util.ravel_pytree(params0)
 
+    # Get the optimization options
     options = dict(maxiter=args.maxiter)
     if "ipopt" in inspect.getmodule(minimize).__name__:
         method = None
         options["disp"] = 5
+        options["linear_solver"] = "ma57"
     else:
         method = "trust-constr"
         options["verbose"] = 2
 
-    result = minimize(
+    # Optimize
+    est_result = minimize(
         jax.jit(est.cost),
-        paramvec,
+        paramvec0,
         method=method,
         jac=jax.jit(est.grad),
         hess=est.sparse_hessian_fun,
@@ -233,19 +236,38 @@ if __name__ == "__main__":
     )
 
     # Unpack optimization result into pytrees
-    paramsopt = unpack(jnp.astype(result.x, paramvec.dtype))
-    popt = paramsopt[0].p
+    est_params = unpack(jnp.astype(est_result.x, paramvec0.dtype))
+    p = est_params[0].p
+    mdlopt = model.bind(p)
+
+    # Validate on a different dataset
+    val = sem.Estimator(dataval, sem.SegmentProblem(mdlopt), fix_p=True)
+    val_params0 = val.param(init_key)
+    val_paramvec0, val_unpack = jax.flatten_util.ravel_pytree(val_params0)
+    val_result = minimize(
+        jax.jit(val.cost),
+        val_paramvec0,
+        method=method,
+        jac=jax.jit(val.grad),
+        hess=val.sparse_hessian_fun,
+        options=options,
+    )
+
+    # Unpack validation result into pytrees
+    val_params = val_unpack(jnp.astype(val_result.x, val_paramvec0.dtype))
+
+    # Merge validation and estimation parameters
+    params = list(est_params) + list(val_params)
 
     # Obtain the optimum model and estimator outputs
-    mdlopt = model.bind(popt)
-    y = np.concatenate([d.y for d in dataest])
-    u = np.concatenate([d.u for d in dataest])
-    mu = np.concatenate([p.mu for p in paramsopt])
+    y = np.concatenate([d.y for d in data])
+    u = np.concatenate([d.u for d in data])
+    mu = np.concatenate([p.mu for p in params])
     yopt = mdlopt.h(mu, u)
     fopt = mdlopt.fc(mu, u)
     xdotopt = jnp.diff(mu, axis=0) / model.dt
     freesim = [
-        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(paramsopt, dataest)
+        mdlopt.free_sim(p.mu[0], d.u) for p, d in zip(params, data)
     ]
     xsim = np.concatenate([pair[0] for pair in freesim])
     ysim = np.concatenate([pair[1] for pair in freesim])
