@@ -93,8 +93,8 @@ class NormalMeasurements(StateSpaceBase):
     def meas_logpdf(self, y, x, u):
         """Log-density of a measurement, log p(y_k | x_k, u_k)."""
         missing = jnp.isnan(y)
-        y_maked = jnp.where(missing, 0.0, y)
-        logpdf = jsp.stats.norm.logpdf(y_maked, self.h(x, u), self.y_std)
+        y_masked = jnp.where(missing, 0.0, y)
+        logpdf = jsp.stats.norm.logpdf(y_masked, self.h(x, u), self.y_std)
         return ~missing @ logpdf
     
     @property
