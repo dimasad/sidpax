@@ -40,7 +40,7 @@ class StateSpaceBase:
 
             # Bind each item in the mapping that is not an attribute yet
             for k, v in d.items():
-                if not hasattr(bound, k):
+                if getattr(bound, k, None) is None:
                     setattr(bound, k, v)
 
         return bound
