@@ -22,9 +22,18 @@ def mvn_logpdf(x, mu, Sigma: mat.PositiveDefiniteMatrix):
 
     # Normalized deviations and quadratic sum
     ndev = jsp.linalg.solve_triangular(Sigma.chol_low, x - mu, lower=True)
-    quad_sum = -0.5 * jnp.sum(ndev ** 2, axis=-1)
+    quad_sum = -0.5 * jnp.sum(ndev**2, axis=-1)
 
     return lognfac + quad_sum
+
+
+@jnp.vectorize
+def normal_logpdf_masked(x, mu, std):
+    """Normal log-density that returns zero for variates masked with NaN."""
+    missing = jnp.isnan(x)
+    x_masked = jnp.where(missing, 0.0, x)
+    logpdf = jsp.stats.norm.logpdf(x_masked, mu, std)
+    return ~missing * logpdf
 
 
 def ghcub(order, dim):
