@@ -1,5 +1,6 @@
 """Statistical helper functions."""
 
+import functools
 import math
 
 import jax
@@ -37,17 +38,45 @@ def normal_logpdf_masked(x, mu, std):
 
 
 @jnp.vectorize
-def normal_logprob(x_h, x_l, mu, std):
-    """Log-probability a normal random variable lies within [x_l, x_h]."""
+def normal_logprob_cdf(x_h, x_l, mu, std):
+    """CDF-based Log-probability a normal variable lies within [x_l, x_h]."""
+    x_mid = 0.5 * (x_h + x_l)
     logcdf = jnp.r_[
         jsp.stats.norm.logcdf(x_h, mu, std), jsp.stats.norm.logcdf(x_l, mu, std)
     ]
     logsf = jnp.r_[
         jsp.stats.norm.logsf(x_l, mu, std), jsp.stats.norm.logsf(x_h, mu, std)
     ]
-    log_summand = jnp.where(logcdf[1] > jnp.log(0.5), logcdf, logsf)
+    log_summand = jnp.where(x_mid > mu, logcdf, logsf)
     weights = jnp.r_[1, -1]
     return jsp.special.logsumexp(log_summand, b=weights)
+
+
+@jnp.vectorize
+def normal_logprob_trapz(x_h, x_l, mu, std):
+    """Trapezoidal Log-probability a normal variable lies within [x_l, x_h]."""
+    logpdf = jsp.stats.norm.logpdf(jnp.r_[x_h, x_l], mu, std)
+    dx = x_h - x_l
+    return jnp.logaddexp(logpdf[0], logpdf[1]) + jnp.log(dx) + jnp.log(0.5)
+
+
+@jnp.vectorize
+def normal_logprob_simps(x_h, x_l, mu, std):
+    """Simpson rule Log-probability a normal variable lies within [x_l, x_h]."""
+    x_mid = 0.5 * (x_h + x_l)
+    logpdf = jsp.stats.norm.logpdf(jnp.r_[x_h, x_mid, x_l], mu, std)
+    weights = (x_h - x_l) / 6 * jnp.r_[1, 4, 1]
+    return jsp.special.logsumexp(logpdf, b=weights)
+
+
+@functools.partial(jnp.vectorize, excluded={4})
+def normal_logprob_simps_comp(x_h, x_l, mu, std, nsub):
+    """`normal_logprob_simps` using composite Simpson's rule."""
+    x = jnp.linspace(x_l, x_h, 2*nsub + 1)
+    logpdf = jsp.stats.norm.logpdf(x, mu, std)
+    dx = x_h - x_l
+    weights = dx / nsub / 6 * jnp.r_[1, jnp.tile(jnp.r_[4, 2], nsub - 1), 4, 1]
+    return jsp.special.logsumexp(logpdf, b=weights)
 
 
 def normal_logprob_guarded(x_h, x_l, mu, std):
@@ -67,7 +96,7 @@ def normal_logprob_guarded(x_h, x_l, mu, std):
     x_l_masked = jnp.where(missing, mu - std, x_l)
 
     # Calculate the probability
-    logprob = normal_logprob(x_h_masked, x_l_masked, mu, std)
+    logprob = normal_logprob_cdf(x_h_masked, x_l_masked, mu, std)
 
     # Calculate the probability based on constant PDF, as a guard
     logpdf_guard = normal_logpdf_masked(x_mid, mu, std) + jnp.log(dx)
