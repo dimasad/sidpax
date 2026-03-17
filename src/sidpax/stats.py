@@ -36,6 +36,28 @@ def normal_logpdf_masked(x, mu, std):
     return ~missing * logpdf
 
 
+@jnp.vectorize
+def normal_logprob(x_h, x_l, mu, std):
+    logcdf = jnp.r_[
+        jsp.stats.norm.logcdf(x_h, mu, std), jsp.stats.norm.logcdf(x_l, mu, std)
+    ]
+    logsf = jnp.r_[
+        jsp.stats.norm.logsf(x_l, mu, std), jsp.stats.norm.logsf(x_h, mu, std)
+    ]
+    log_summand = jnp.where(logcdf[1] > jnp.log(0.5), logcdf, logsf)
+    weights = jnp.r_[1, -1]
+    return jsp.special.logsumexp(log_summand, b=weights)
+
+
+def normal_logprob_guarded(x_h, x_l, mu, std):
+    dx = x_h - x_l
+    x_mid = 0.5 * (x_h + x_l)
+    logpdf_guard = jsp.stats.norm.logpdf(x_mid, mu, std) + jnp.log(dx)
+    logprob = normal_logprob(x_h, x_l, mu, std)
+    use_pdf = ~jnp.isfinite(logprob) | (dx / std <= 0.4)
+    return jnp.where(use_pdf, logpdf_guard, logprob)
+
+
 def ghcub(order, dim):
     """Gauss-Hermite nodes and weights for Gaussian cubature."""
     x, w_unnorm = special.roots_hermitenorm(order)
