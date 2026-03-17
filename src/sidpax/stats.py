@@ -39,7 +39,7 @@ def normal_logpdf_masked(x, mu, std):
 
 @jnp.vectorize
 def normal_logprob_cdf(x_h, x_l, mu, std):
-    """CDF-based Log-probability a normal variable lies within [x_l, x_h]."""
+    """CDF for normal interval log-probability."""
     x_mid = 0.5 * (x_h + x_l)
     logcdf = jnp.r_[
         jsp.stats.norm.logcdf(x_h, mu, std), jsp.stats.norm.logcdf(x_l, mu, std)
@@ -54,7 +54,7 @@ def normal_logprob_cdf(x_h, x_l, mu, std):
 
 @jnp.vectorize
 def normal_logprob_trapz(x_h, x_l, mu, std):
-    """Trapezoidal Log-probability a normal variable lies within [x_l, x_h]."""
+    """Trapezoidal rule for normal interval log-probability."""
     logpdf = jsp.stats.norm.logpdf(jnp.r_[x_h, x_l], mu, std)
     dx = x_h - x_l
     return jnp.logaddexp(logpdf[0], logpdf[1]) + jnp.log(dx) + jnp.log(0.5)
@@ -62,7 +62,7 @@ def normal_logprob_trapz(x_h, x_l, mu, std):
 
 @jnp.vectorize
 def normal_logprob_simps(x_h, x_l, mu, std):
-    """Simpson rule Log-probability a normal variable lies within [x_l, x_h]."""
+    """Simpson's rule for normal interval log-probability."""
     x_mid = 0.5 * (x_h + x_l)
     logpdf = jsp.stats.norm.logpdf(jnp.r_[x_h, x_mid, x_l], mu, std)
     weights = (x_h - x_l) / 6 * jnp.r_[1, 4, 1]
@@ -71,7 +71,7 @@ def normal_logprob_simps(x_h, x_l, mu, std):
 
 @functools.partial(jnp.vectorize, excluded={4})
 def normal_logprob_simps_comp(x_h, x_l, mu, std, nsub: int):
-    """`normal_logprob_simps` using composite Simpson's rule."""
+    """Composite Simpson's rule for normal interval log-probability."""
     x = jnp.linspace(x_l, x_h, 2*nsub + 1)
     logpdf = jsp.stats.norm.logpdf(x, mu, std)
     dx = x_h - x_l
