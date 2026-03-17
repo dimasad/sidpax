@@ -79,6 +79,15 @@ def normal_logprob_simps_comp(x_h, x_l, mu, std, nsub: int):
     return jsp.special.logsumexp(logpdf, b=weights)
 
 
+@functools.partial(jnp.vectorize, excluded={4})
+def normal_logprob_simps2_comp(x_h, x_l, mu, std, nsub: int):
+    """Composite Simpson's second rule for normal interval log-probability."""
+    x = jnp.linspace(x_l, x_h, 3*nsub + 1)
+    logpdf = jsp.stats.norm.logpdf(x, mu, std)
+    dx = x_h - x_l
+    weights = dx / nsub / 8 * jnp.r_[1, jnp.tile(jnp.r_[3, 3, 2], nsub - 1), 3, 3, 1]
+    return jsp.special.logsumexp(logpdf, b=weights)
+
 def ghcub(order, dim):
     """Gauss-Hermite nodes and weights for Gaussian cubature."""
     x, w_unnorm = special.roots_hermitenorm(order)
