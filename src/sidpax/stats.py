@@ -38,6 +38,7 @@ def normal_logpdf_masked(x, mu, std):
 
 @jnp.vectorize
 def normal_logprob(x_h, x_l, mu, std):
+    """Log-probability a normal random variable lies within [x_l, x_h]."""
     logcdf = jnp.r_[
         jsp.stats.norm.logcdf(x_h, mu, std), jsp.stats.norm.logcdf(x_l, mu, std)
     ]
@@ -50,12 +51,33 @@ def normal_logprob(x_h, x_l, mu, std):
 
 
 def normal_logprob_guarded(x_h, x_l, mu, std):
+    """`normal_logprob` guarded against masked data and ill-conditioning.
+
+    Masked and missing data are represented by NaN, which results in a return
+    value of zero.
+    """
+    # Determine the interval length and normalized center
     dx = x_h - x_l
     x_mid = 0.5 * (x_h + x_l)
-    logpdf_guard = jsp.stats.norm.logpdf(x_mid, mu, std) + jnp.log(dx)
-    logprob = normal_logprob(x_h, x_l, mu, std)
-    use_pdf = ~jnp.isfinite(logprob) | (dx / std <= 0.4)
-    return jnp.where(use_pdf, logpdf_guard, logprob)
+    x_mid_norm = (x_mid - mu) / std
+
+    # Mask the missing data for calculating derivatives
+    missing = jnp.isnan(x_l) | jnp.isnan(x_h)
+    x_h_masked = jnp.where(missing, mu + std, x_h)
+    x_l_masked = jnp.where(missing, mu - std, x_l)
+
+    # Calculate the probability
+    logprob = normal_logprob(x_h_masked, x_l_masked, mu, std)
+
+    # Calculate the probability based on constant PDF, as a guard
+    logpdf_guard = normal_logpdf_masked(x_mid, mu, std) + jnp.log(dx)
+
+    # Use the guard if the interval is short
+    use_guard = ~jnp.isfinite(logprob) | (dx / std <= 0.4)
+    logprob_guarded = jnp.where(use_guard, logpdf_guard, logprob)
+
+    # Replace the missing-data and return
+    return jnp.where(missing, 0, logprob_guarded)
 
 
 def ghcub(order, dim):
