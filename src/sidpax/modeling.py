@@ -51,7 +51,7 @@ class StateSpaceBase:
         If not overridden, defaults to an improper uniform prior.
         """
         return jnp.array(0.0)
-    
+
     def free_sim(self, x0, u):
         """Simulate the system without noise."""
         scanfun = lambda x, u: (self.f(x, u), [x, self.h(x, u)])
@@ -93,10 +93,15 @@ class NormalMeasurements(StateSpaceBase):
     def meas_logpdf(self, y, x, u):
         """Log-density of a measurement, log p(y_k | x_k, u_k)."""
         return stats.normal_logpdf_masked(y, self.h(x, u), self.y_std).sum()
-    
+
     @property
     def y_std(self):
+        """Measurement standard deviations."""
         return jnp.exp(self.y_log_std)
+
+    @y_std.setter
+    def y_std(self, value):
+        self.y_log_std = jnp.log(value)
 
 
 class EulerDiscretization(StateSpaceBase):
